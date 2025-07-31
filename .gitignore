@@ -3,3 +3,6 @@ misc/
 
 # Ignore .env file with credentials
 .env 
+
+# Ignore PostgreSQL database files 
+postgres/
