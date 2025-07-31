@@ -1,2 +1,5 @@
 # Ignore "misc" folder
 misc/
+
+# Ignore .env file with credentials
+.env 
