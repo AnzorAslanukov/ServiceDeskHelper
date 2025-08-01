@@ -6,3 +6,7 @@ misc/
 
 # Ignore PostgreSQL database files 
 postgres/
+
+# Ignore Penn Medicine's OneNote workbooks
+LGH OneNote Scripts/
+Work Notebook/
