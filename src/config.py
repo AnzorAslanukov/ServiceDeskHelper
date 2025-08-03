@@ -137,23 +137,28 @@ def validate_config():
     return True
 
 # Debug logging function
-def write_debug(message, data=None):
+def write_debug(message, data=None, append=False):
     """
     Write debug information to debug.txt file.
-    Clears the file before writing new content.
     
     Args:
         message (str): Debug message to write
         data (any, optional): Additional data to write (will be converted to string)
+        append (bool, optional): If True, appends to the file. If False, clears the file before writing. Defaults to False.
     """
     debug_file_path = FILE_PATHS['debug_file_path']
     timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     
     try:
-        # Clear file and write new content
-        with open(debug_file_path, 'w', encoding='utf-8') as f:
-            f.write(f"[{timestamp}] DEBUG LOG\n")
-            f.write("=" * 50 + "\n\n")
+        mode = 'a' if append else 'w'
+        with open(debug_file_path, mode, encoding='utf-8') as f:
+            if not append:
+                f.write(f"[{timestamp}] DEBUG LOG\n")
+                f.write("=" * 50 + "\n\n")
+            else:
+                f.write(f"\n\n[{timestamp}] APPENDED LOG\n")
+                f.write("=" * 50 + "\n\n")
+
             f.write(f"Message: {message}\n\n")
             
             if data is not None:

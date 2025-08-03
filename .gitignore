@@ -10,3 +10,6 @@ postgres/
 # Ignore Penn Medicine's OneNote workbooks
 LGH OneNote Scripts/
 Work Notebook/
+
+# Misc
+__pycache__
