@@ -3,3 +3,4 @@ python-dotenv
 pgvector
 databricks-sdk
 requests
+python-docx
