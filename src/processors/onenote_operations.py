@@ -10,7 +10,7 @@ from docx import Document # pip install python-docx
 sys.path.append(os.path.join(os.path.dirname(__file__), '..', '..'))
 
 from src.config import DATABRICKS_CONFIG, write_debug
-from src.prompts import LLM_INDEX_PAGES_PROMPT
+from src.prompts import LLM_INDEX_PAGES_PROMPT, LLM_EXTRACT_PAGE_DATA_PROMPT
 
 # Regex pattern for valid date/time formats
 # "Friday, December 18, 2020\n9:08 AM" or "Friday, December 18, 2020 9:08 AM"
@@ -203,16 +203,139 @@ def get_onenote_page_demarcation_data(filepath):
 
         # Post-processing: Filter out records with invalid page_datetime format
         filtered_demarcation_data = []
+        faulty_records_count = 0
         for record in page_demarcation_data:
             if DATETIME_PATTERN.match(record["page_datetime"]):
                 filtered_demarcation_data.append(record)
             else:
                 write_debug(f"Invalid page_datetime format for record: {record}. Skipping.", append=True)
+                faulty_records_count += 1
 
+        write_debug(f"Removed {faulty_records_count} faulty records due to mismatched datetime patterns.", append=True)
         write_debug("Final LLM Page Demarcation Data (Filtered)", filtered_demarcation_data)
         return filtered_demarcation_data
     except Exception as e:
         write_debug(f"Error in get_onenote_page_demarcation_data for {filepath}", str(e), append=True)
         raise
 
-get_onenote_page_demarcation_data("C:/Users/aslanuka_wa1/Documents/projects/sd_database_v4/data/onenote/workbooks/Work Notebook/1 SD Daily Post.docx")
+def process_onenote_pages(filepath, page_demarcation_data):
+    """
+    Processes each page of a DOCX file using an LLM to extract detailed page data.
+    
+    Args:
+        filepath (str): The path to the .docx file.
+        page_demarcation_data (list): A list of dictionaries, each representing a page's
+                                       demarcation data, as returned by get_onenote_page_demarcation_data.
+                                       
+    Returns:
+        list: A list of dictionaries, each representing a processed page with title, body, datetime, and summary status.
+    """
+    MAX_RETRIES = 3
+    
+    try:
+        docx_text = extract_text_from_docx(filepath)
+        write_debug(f"Extracted DOCX text length for {filepath} for page processing", len(docx_text), append=True)
+
+        text_generation_url = DATABRICKS_CONFIG['text_generation_url']
+        api_key = DATABRICKS_CONFIG['api_key']
+
+        headers = {
+            'Authorization': f'Bearer {api_key}',
+            'Content-Type': 'application/json'
+        }
+
+        processed_pages_data = []
+
+        for i, page_demarcation in enumerate(page_demarcation_data):
+            page_title = page_demarcation['page_title']
+            demarcation_string = page_demarcation['page_demarcation_string']
+
+            start_index = docx_text.find(demarcation_string)
+            if start_index == -1:
+                write_debug(f"Demarcation string not found for page: {page_title}. Skipping.", append=True)
+                continue
+
+            end_index = None
+            if i < len(page_demarcation_data) - 1:
+                next_demarcation_string = page_demarcation_data[i+1]['page_demarcation_string']
+                end_index = docx_text.find(next_demarcation_string, start_index + len(demarcation_string))
+                if end_index == -1:
+                    write_debug(f"Next demarcation string not found for page: {page_title}. Processing until end of document.", append=True)
+                    page_content = docx_text[start_index:]
+                else:
+                    page_content = docx_text[start_index:end_index]
+            else:
+                page_content = docx_text[start_index:]
+
+            write_debug(f"Processing page: '{page_title}' with content length: {len(page_content)}", append=True)
+
+            extract_prompt_content = LLM_EXTRACT_PAGE_DATA_PROMPT.replace("{{target_page_title}}", page_title).replace("{{page_content}}", page_content)
+            
+            extract_payload = {
+                "messages": [
+                    {
+                        "role": "user",
+                        "content": extract_prompt_content
+                    }
+                ],
+                "max_tokens": 8191 # Max output tokens for page data
+            }
+
+            page_data = None
+            for attempt in range(MAX_RETRIES):
+                write_debug(f"Attempt {attempt + 1}/{MAX_RETRIES} for page data extraction LLM call for page: {page_title}", append=True)
+                try:
+                    response = requests.post(
+                        text_generation_url,
+                        headers=headers,
+                        json=extract_payload,
+                        timeout=300 # Increased timeout for potentially large page extraction
+                    )
+                    response.raise_for_status()
+                    
+                    llm_raw_response = response.json()
+                    
+                    if 'choices' in llm_raw_response and len(llm_raw_response['choices']) > 0:
+                        llm_text_content = llm_raw_response['choices'][0]['message']['content']
+                        if llm_text_content.startswith("```json") and llm_text_content.endswith("```"):
+                            llm_text_content = llm_text_content[7:-3].strip()
+                        try:
+                            parsed_data = json.loads(llm_text_content)
+                            # Basic validation for expected keys
+                            if all(key in parsed_data for key in ["page_title", "page_body_text", "page_datetime", "is_summary"]):
+                                page_data = parsed_data
+                                write_debug(f"LLM page data extraction successful for page: {page_title}", page_data, append=True)
+                                break
+                            else:
+                                write_debug(f"LLM page data output invalid format for page {page_title} (Attempt {attempt + 1})", llm_text_content, append=True)
+                        except json.JSONDecodeError as e:
+                            write_debug(f"LLM page data response not valid JSON for page {page_title} (Attempt {attempt + 1}): {e}", llm_text_content, append=True)
+                    else:
+                        write_debug(f"LLM page data response missing 'choices' or empty for page {page_title} (Attempt {attempt + 1})", llm_raw_response, append=True)
+
+                except requests.exceptions.RequestException as e:
+                    write_debug(f"LLM page data API call failed for page {page_title} (Attempt {attempt + 1}): {e}", append=True)
+                except Exception as e:
+                    write_debug(f"An unexpected error occurred during LLM page data call for page {page_title} (Attempt {attempt + 1}): {e}", append=True)
+                
+                if attempt < MAX_RETRIES - 1:
+                    import time
+                    time.sleep(2)
+
+            if page_data:
+                processed_pages_data.append(page_data)
+            else:
+                write_debug(f"Failed to extract data for page: {page_title} after {MAX_RETRIES} attempts. Skipping this page.", append=True)
+
+        write_debug("Finished processing all pages.", processed_pages_data, append=True)
+        return processed_pages_data
+    except Exception as e:
+        write_debug(f"Error in process_onenote_pages for {filepath}", str(e), append=True)
+        raise
+
+# Example usage (for testing purposes, can be removed later)
+docx_file_path = "C:/Users/aslanuka_wa1/Documents/projects/sd_database_v4/data/onenote/workbooks/LGH OneNote Scripts/Admin Finance Apps.docx"
+demarcation_data = get_onenote_page_demarcation_data(docx_file_path)
+if demarcation_data:
+    processed_data = process_onenote_pages(docx_file_path, demarcation_data)
+    write_debug("Processed Pages Data:", processed_data, append=True)
