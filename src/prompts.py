@@ -20,3 +20,50 @@ Now, parse the following raw DOCX text:
 {{docx_content}}
 ---DOCX_TEXT_END---
 """
+
+LLM_INDEX_PAGES_PROMPT = """
+You are an intelligent assistant designed to identify the start of individual pages within a given document text.
+The document text is from a OneNote exported DOCX file, which contains multiple pages.
+Each page starts with a page title, immediately followed by a date and time string.
+Your task is to identify these page titles, their corresponding date/time strings, and create a unique demarcation string for each page.
+
+Output the information as a JSON array of objects. Each object should represent a page and have the following keys:
+- "page_title": The exact title of the page.
+- "page_datetime": The exact date and time string that immediately follows the page title.
+- "page_demarcation_string": A single string that is the exact concatenation of the "page_title" and "page_datetime" as they appear in the document text, including all whitespace and line breaks between them. This string will be used to precisely locate the start of each page.
+
+The order of objects in the array must match the order of pages in the document.
+DO NOT include any conversational text, explanations, or code examples. ONLY output the JSON array.
+
+Now, process the following document text:
+
+---DOCUMENT_TEXT_START---
+{{document_content}}
+---DOCUMENT_TEXT_END---
+"""
+
+LLM_EXTRACT_PAGE_DATA_PROMPT = """
+You are an intelligent parser designed to extract structured information for a single page from a larger document.
+You will be provided with a section of text that contains the content of one or more pages, but you should focus on extracting data for a specific page identified by its title.
+Your task is to extract the page's title, its body content, and its creation datetime.
+
+The creation datetime format will typically be like: "Wednesday, September 2, 2020 4:32 PM".
+The page title is usually at the beginning of the page.
+
+Prioritize providing the full 'page_body_text'. Only summarize if the full content *cannot* be included without exceeding the API's maximum token limit.
+If a summary is provided, ensure it accurately represents the main points of the page.
+
+Output the extracted information as a JSON object with the following keys:
+- "page_title": The title of the page.
+- "page_body_text": The main content of the page, or a concise summary if the full content is too long.
+- "page_datetime": The creation datetime of the page, exactly as found in the text. If not found, use "N/A".
+- "is_summary": A boolean (true/false) indicating if 'page_body_text' is a summary (true) or the full content (false).
+
+DO NOT include any conversational text, explanations, or code examples. ONLY output the JSON object.
+
+Now, parse the following page content, focusing on the page titled "{{target_page_title}}":
+
+---PAGE_CONTENT_START---
+{{page_content}}
+---PAGE_CONTENT_END---
+"""
