@@ -26,6 +26,10 @@ You are an intelligent assistant designed to identify the start of individual pa
 The document text is from a OneNote exported DOCX file, which contains multiple pages.
 Each page starts with a page title, immediately followed by a date and time string.
 Your task is to identify these page titles, their corresponding date/time strings, and create a unique demarcation string for each page.
+The date/time string most closely resembles these formats: "Friday, December 18, 2020\n9:08 AM" and "Friday, December 18, 2020 9:08 AM".
+If the date/time format is different from the already mentioned one, then do not count it for demarcation pruposes and ignore it. 
+Here is how the date/time format needs to look like for it to qualify for demarcation: (Name of the week day), (name of month) DD, YYYY HH:MM AM/PM. 
+Here are examples of date/time formats that are incorrect and must not be considered for demarcation: "string" - (name of month) DD, YYYY or (name of month)/DD/YYYY or MM/DD/YYYY. 
 
 Output the information as a JSON array of objects. Each object should represent a page and have the following keys:
 - "page_title": The exact title of the page.

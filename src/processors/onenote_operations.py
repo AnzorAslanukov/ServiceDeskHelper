@@ -1,6 +1,7 @@
 import os
 import sys
 import json
+import re # Import regex module
 import requests
 from datetime import datetime
 from docx import Document # pip install python-docx
@@ -10,6 +11,14 @@ sys.path.append(os.path.join(os.path.dirname(__file__), '..', '..'))
 
 from src.config import DATABRICKS_CONFIG, write_debug
 from src.prompts import LLM_INDEX_PAGES_PROMPT
+
+# Regex pattern for valid date/time formats
+# "Friday, December 18, 2020\n9:08 AM" or "Friday, December 18, 2020 9:08 AM"
+DATETIME_PATTERN = re.compile(
+    r"^(Monday|Tuesday|Wednesday|Thursday|Friday|Saturday|Sunday), "
+    r"(January|February|March|April|May|June|July|August|September|October|November|December) \d{1,2}, \d{4}"
+    r"[\n ]\d{1,2}:\d{2} (AM|PM)$"
+)
 
 def extract_text_from_docx(filepath):
     """
@@ -192,10 +201,18 @@ def get_onenote_page_demarcation_data(filepath):
             write_debug(f"LLM indexing failed or returned no demarcation data after {MAX_RETRIES} attempts for {filepath}", append=True)
             raise Exception(f"LLM indexing failed or returned no demarcation data after {MAX_RETRIES} attempts for {filepath}.")
 
-        write_debug("Final LLM Page Demarcation Data", page_demarcation_data)
-        return page_demarcation_data
+        # Post-processing: Filter out records with invalid page_datetime format
+        filtered_demarcation_data = []
+        for record in page_demarcation_data:
+            if DATETIME_PATTERN.match(record["page_datetime"]):
+                filtered_demarcation_data.append(record)
+            else:
+                write_debug(f"Invalid page_datetime format for record: {record}. Skipping.", append=True)
+
+        write_debug("Final LLM Page Demarcation Data (Filtered)", filtered_demarcation_data)
+        return filtered_demarcation_data
     except Exception as e:
         write_debug(f"Error in get_onenote_page_demarcation_data for {filepath}", str(e), append=True)
         raise
 
-get_onenote_page_demarcation_data("C:/Users/aslanuka_wa1/Documents/projects/sd_database_v4/data/onenote/workbooks/LGH OneNote Scripts/Admin Finance Apps.docx")
+get_onenote_page_demarcation_data("C:/Users/aslanuka_wa1/Documents/projects/sd_database_v4/data/onenote/workbooks/Work Notebook/1 SD Daily Post.docx")
