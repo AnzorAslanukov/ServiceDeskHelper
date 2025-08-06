@@ -6,6 +6,7 @@ CREATE TABLE onenote_pages (
     id SERIAL PRIMARY KEY,
     page_title TEXT NOT NULL,
     page_body_text TEXT NOT NULL,
+    is_summary BOOLEAN DEFAULT FALSE,
     page_datetime TIMESTAMP WITH TIME ZONE,
     workbook_name TEXT NOT NULL,
     section_name TEXT NOT NULL,
