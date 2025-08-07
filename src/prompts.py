@@ -31,12 +31,9 @@ If the date/time format is different from the already mentioned one, then do not
 Here is how the date/time format needs to look like for it to qualify for demarcation: (Name of the week day), (name of month) DD, YYYY HH:MM AM/PM. 
 Here are examples of date/time formats that are incorrect and must not be considered for demarcation: "string" - (name of month) DD, YYYY or (name of month)/DD/YYYY or MM/DD/YYYY. 
 
-Output the information as a JSON array of objects. Each object should represent a page and have the following keys:
-- "page_title": The exact title of the page.
-- "page_datetime": The exact date and time string that immediately follows the page title.
-- "page_demarcation_string": A single string that is the exact concatenation of the "page_title" and "page_datetime" as they appear in the document text, including all whitespace and line breaks between them. This string will be used to precisely locate the start of each page.
+Output the information as a JSON array of strings. Each string should be the exact concatenation of the "page_title" and "page_datetime" as they appear in the document text, including all whitespace and line breaks between them. This string will be used to precisely locate the start of each page.
 
-The order of objects in the array must match the order of pages in the document.
+The order of strings in the array must match the order of pages in the document.
 DO NOT include any conversational text, explanations, or code examples. ONLY output the JSON array.
 
 Now, process the following document text:
