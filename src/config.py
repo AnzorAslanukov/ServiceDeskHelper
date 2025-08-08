@@ -17,7 +17,7 @@ DATABASE_CONFIG = {
 }
 
 # Database Table Names
-ONENOTE_PAGES_TABLE = 'onenote_pages'
+ONENOTE_CHUNKS_TABLE = 'onenote_chunks'
 
 # Database Connection String
 DATABASE_URL = os.getenv('DATABASE_URL')
@@ -159,7 +159,7 @@ def write_debug(message, data=None, append=False):
                 f.write(f"\n\n[{timestamp}] APPENDED LOG\n")
                 f.write("=" * 50 + "\n\n")
 
-            f.write(f"Message: {message}\n\n")
+            f.write(f"Message:\n\n{message}\n\n")
             
             if data is not None:
                 f.write("Data:\n")

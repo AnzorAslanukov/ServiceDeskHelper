@@ -4,3 +4,5 @@ pgvector
 databricks-sdk
 requests
 python-docx
+mammoth
+bs4

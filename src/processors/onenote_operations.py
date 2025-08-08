@@ -5,16 +5,20 @@ import re # Import regex module
 import requests
 from datetime import datetime
 from docx import Document # pip install python-docx
+import mammoth # pip install mammoth
+from bs4 import BeautifulSoup # pip install beautifulsoup4
 
 # Add the project root to Python path for imports
 sys.path.append(os.path.join(os.path.dirname(__file__), '..', '..'))
 
 from src.config import DATABRICKS_CONFIG, FILE_PATHS, write_debug
-from src.processors.database_operations import onenote_notebook_exists, onenote_section_exists
+from src.processors.database_operations import add_onenote_chunk, onenote_section_exists, delete_onenote_records
+
 
 def extract_text_from_docx(filepath):
     """
-    Extracts all text from a .docx file.
+    Extracts all text from a .docx file, including paragraphs and tables.
+    Uses multiple methods in order of complexity, falling back to simpler methods if needed.
     
     Args:
         filepath (str): The path to the .docx file.
@@ -22,14 +26,52 @@ def extract_text_from_docx(filepath):
     Returns:
         str: The concatenated text content of the .docx file.
     """
+    write_debug(f"Attempting to extract text from DOCX using mammoth: {filepath}", append=True)
     try:
-        document = Document(filepath)
-        full_text = []
-        for para in document.paragraphs:
-            full_text.append(para.text)
-        return "".join(full_text).replace('\n', '').replace('\r', '').replace(' ', '')
+        with open(filepath, "rb") as docx_file:
+            result = mammoth.convert_to_html(docx_file)
+            html = result.value # The generated HTML
+            messages = result.messages # Any messages from the conversion
+
+            for msg in messages:
+                write_debug(f"Mammoth conversion message: {msg.message} (Type: {msg.type})", append=True)
+
+            soup = BeautifulSoup(html, 'html.parser')
+            full_text_parts = []
+
+            # Extract text from paragraphs
+            for p in soup.find_all('p'):
+                if p.get_text(strip=True):
+                    full_text_parts.append(p.get_text(separator='\n', strip=True))
+            
+            # Extract text from tables
+            for table in soup.find_all('table'):
+                table_text = []
+                for row in table.find_all('tr'):
+                    row_text = []
+                    for cell in row.find_all(['td', 'th']):
+                        cell_content = cell.get_text(separator='\n', strip=True)
+                        if cell_content:
+                            row_text.append(cell_content)
+                    if row_text:
+                        table_text.append('\t'.join(row_text)) # Use tab for cell separation
+                if table_text:
+                    full_text_parts.append('\n'.join(table_text)) # Use newline for row separation
+
+            result_text = '\n\n'.join(full_text_parts) # Double newline for block separation
+
+            write_debug(f"DOCX extraction complete using mammoth: {filepath}", {
+                "extracted_length": len(result_text),
+                "method_used": "mammoth_html_parsing"
+            }, append=True)
+            
+            return result_text
+        
+    except FileNotFoundError:
+        write_debug(f"DOCX file not found: {filepath}", append=True)
+        raise
     except Exception as e:
-        write_debug(f"Error extracting text from DOCX: {filepath}", str(e), append=True)
+        write_debug(f"Error extracting text from DOCX using mammoth: {filepath}: {str(e)}", append=True)
         raise
 
 def get_text_embeddings(text):
@@ -42,6 +84,7 @@ def get_text_embeddings(text):
     Returns:
         list: A list of floats representing the embedding vector.
     """
+    write_debug(f"Attempting to generate embeddings for text of length {len(text)}", append=True)
     embedding_url = DATABRICKS_CONFIG['embedding_url']
     api_key = DATABRICKS_CONFIG['api_key']
 
@@ -79,4 +122,151 @@ def get_text_embeddings(text):
     except Exception as e:
         write_debug(f"An unexpected error occurred during embedding generation: {e}", append=True)
         raise Exception(f"Failed to get embeddings: Unexpected error - {e}")
+
+def process_single_docx_file(filepath, overwrite_existing=False):
+    """
+    Processes a single DOCX file, extracts text, chunks it semantically,
+    generates embeddings, and stores them in the database.
+    Derives notebook_name and section_name from the filepath.
     
+    Args:
+        filepath (str): The path to the .docx file.
+        overwrite_existing (bool): If True, deletes existing records for the section/notebook
+                                   before processing. If False, skips processing if records exist.
+                                   Defaults to False.
+    """
+    write_debug(f"Starting process_single_docx_file for: {filepath}", append=True)
+    onenote_data_dir = FILE_PATHS['onenote_data_dir']
+    
+    # Derive notebook_name and section_name from filepath
+    relative_path = os.path.relpath(filepath, onenote_data_dir)
+    parts = relative_path.split(os.sep)
+    
+    if len(parts) >= 2:
+        notebook_name = parts[-2]
+        section_name = os.path.splitext(parts[-1])[0]
+        write_debug(f"Derived notebook: {notebook_name}, section: {section_name}", append=True)
+    else:
+        write_debug(f"Could not derive notebook and section names from path: {filepath}", append=True)
+        return
+
+    write_debug(f"  Processing section: {section_name} in notebook: {notebook_name} ({filepath})", append=True)
+
+    # Check for existing records
+    if onenote_section_exists(section_name): # Assuming section_name is unique enough for this check
+        write_debug(f"  Records for section '{section_name}' already exist.", append=True)
+        if overwrite_existing:
+            write_debug(f"  Overwriting existing records for section '{section_name}'.", append=True)
+            delete_onenote_records(section_name, 'section')
+        else:
+            write_debug(f"  Skipping processing for section '{section_name}' (overwrite_existing is False).", append=True)
+            return
+    
+    try:
+        full_text = extract_text_from_docx(filepath)
+        write_debug(f"  Text extracted from DOCX. Length: {len(full_text)}", append=True)
+        
+        # Semantic chunking logic
+        paragraphs = [p.strip() for p in full_text.split('\n\n') if p.strip()]
+        write_debug(f"  Split into {len(paragraphs)} paragraphs.", append=True)
+        
+        current_chunk_text = []
+        current_chunk_word_count = 0
+        chunk_index = 0
+        
+        MAX_WORDS = 5500
+        BUFFER_WORDS = 500
+
+        for paragraph in paragraphs:
+            paragraph_words = len(paragraph.split())
+            write_debug(f"  Processing paragraph with {paragraph_words} words.", append=True)
+            
+            if current_chunk_word_count + paragraph_words <= MAX_WORDS:
+                current_chunk_text.append(paragraph)
+                current_chunk_word_count += paragraph_words
+                write_debug(f"  Added paragraph to current chunk. Current words: {current_chunk_word_count}", append=True)
+            else:
+                # If adding the next paragraph exceeds max, finalize current chunk
+                if current_chunk_text:
+                    chunk_content = "\n\n".join(current_chunk_text)
+                    chunk_title = " ".join(chunk_content.split()[:10]) # First 10 words as title
+                    write_debug(f"  Finalizing chunk {chunk_index} with {current_chunk_word_count} words. Title: {chunk_title}", append=True)
+                    embedding = get_text_embeddings(chunk_content)
+                    
+                    add_onenote_chunk(
+                        chunk_title=chunk_title,
+                        chunk_text=chunk_content,
+                        chunk_index=chunk_index,
+                        notebook_name=notebook_name,
+                        section_name=section_name,
+                        embedding=embedding
+                    )
+                    write_debug(f"  Chunk {chunk_index} added to database.", append=True)
+                    chunk_index += 1
+                
+                # Start new chunk with buffer logic
+                current_chunk_text = [paragraph]
+                current_chunk_word_count = paragraph_words
+                write_debug(f"  Starting new chunk with current paragraph. Words: {current_chunk_word_count}", append=True)
+                
+                # Add content from previous chunk to new chunk as buffer
+                buffer_content = []
+                buffer_word_count = 0
+                for prev_paragraph in reversed(current_chunk_text[:-1]): # Exclude current paragraph
+                    prev_paragraph_words = len(prev_paragraph.split())
+                    if buffer_word_count + prev_paragraph_words <= BUFFER_WORDS:
+                        buffer_content.insert(0, prev_paragraph)
+                        buffer_word_count += prev_paragraph_words
+                    else:
+                        break
+                current_chunk_text = buffer_content + current_chunk_text
+                current_chunk_word_count += buffer_word_count
+                write_debug(f"  Added buffer content to new chunk. Total words: {current_chunk_word_count}", append=True)
+
+        # Add the last chunk if any content remains
+        if current_chunk_text:
+            chunk_content = "\n\n".join(current_chunk_text)
+            chunk_title = " ".join(chunk_content.split()[:10])
+            write_debug(f"  Finalizing last chunk {chunk_index} with {current_chunk_word_count} words. Title: {chunk_title}", append=True)
+            embedding = get_text_embeddings(chunk_content)
+            
+            add_onenote_chunk(
+                chunk_title=chunk_title,
+                chunk_text=chunk_content,
+                chunk_index=chunk_index,
+                notebook_name=notebook_name,
+                section_name=section_name,
+                embedding=embedding
+            )
+            write_debug(f"  Last chunk {chunk_index} added to database.", append=True)
+            chunk_index += 1
+            
+    except Exception as e:
+        write_debug(f"Error processing section {section_name} in notebook {notebook_name}: {str(e)}", append=True)
+
+def process_onenote_data():
+    """
+    Processes OneNote data from the configured directory by iterating through notebooks
+    and calling process_single_docx_file for each DOCX file.
+    """
+    onenote_data_dir = FILE_PATHS['onenote_data_dir']
+    write_debug(f"Starting OneNote data processing from: {onenote_data_dir}", append=True)
+
+    if not os.path.exists(onenote_data_dir):
+        write_debug(f"OneNote data directory not found: {onenote_data_dir}", append=True)
+        return
+
+    for notebook_name_dir in os.listdir(onenote_data_dir):
+        notebook_path = os.path.join(onenote_data_dir, notebook_name_dir)
+        if os.path.isdir(notebook_path):
+            write_debug(f"Processing notebook directory: {notebook_name_dir}", append=True)
+            
+            for section_file in os.listdir(notebook_path):
+                if section_file.endswith(".docx"):
+                    section_filepath = os.path.join(notebook_path, section_file)
+                    write_debug(f"Processing new DOCX file: {section_file}")
+                    process_single_docx_file(section_filepath)
+    
+    write_debug("Finished OneNote data processing.", append=True)
+
+
