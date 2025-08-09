@@ -12,7 +12,7 @@ from bs4 import BeautifulSoup # pip install beautifulsoup4
 sys.path.append(os.path.join(os.path.dirname(__file__), '..', '..'))
 
 from src.config import DATABRICKS_CONFIG, FILE_PATHS, write_debug
-from src.processors.database_operations import add_onenote_chunk, onenote_section_exists, delete_onenote_records
+from src.processors.database_operations import add_onenote_chunk, onenote_section_exists, delete_onenote_records, check_table_and_columns_exist, perform_hybrid_search
 
 
 def extract_text_from_docx(filepath):
@@ -104,7 +104,7 @@ def get_text_embeddings(text):
             json=payload,
             timeout=30 # Standard timeout for embedding
         )
-        response.raise_for_status() # Raise an exception for HTTP errors (4xx or 5xx)
+        response.raise_for_status() # Raise an exception for HTTP errors (4xx or 5xx) 
         
         embedding_response = response.json()
         
@@ -174,8 +174,8 @@ def process_single_docx_file(filepath, overwrite_existing=False):
         current_chunk_word_count = 0
         chunk_index = 0
         
-        MAX_WORDS = 5500
-        BUFFER_WORDS = 500
+        MAX_WORDS = 1000
+        BUFFER_WORDS = 200
 
         for paragraph in paragraphs:
             paragraph_words = len(paragraph.split())
@@ -269,4 +269,83 @@ def process_onenote_data():
     
     write_debug("Finished OneNote data processing.", append=True)
 
+def hybrid_search_onenote(query_string, num_records=3, table_name="onenote_chunks", column_names=["chunk_title", "chunk_text", "notebook_name", "section_name"], keywords=None):
+    """
+    Performs a hybrid search combining vector similarity and keyword matching.
+    
+    Args:
+        query_string (str): The string object to search for.
+        num_records (int): The number of records to retrieve (default 3, max 10).
+        table_name (str): The name of the table to search in (default "onenote_chunks").
+        column_names (list): List of column names to retrieve from the table.
+        keywords (str, optional): Keywords for full-text search. Defaults to None.
+        
+    Returns:
+        dict: A JSON object with search results.
+    """
+    write_debug(f"Starting hybrid search for query: '{query_string}' in table '{table_name}' with keywords: '{keywords}'", append=False)
+    
+    if not 1 <= num_records <= 10:
+        write_debug(f"Error: num_records must be between 1 and 10. Received: {num_records}", append=True)
+        return {
+            "error": "num_records must be between 1 and 10",
+            "num_records_chosen": num_records
+        }
+
+    # 1. Check for table and column existence
+    if not check_table_and_columns_exist(table_name, column_names + ["embedding"]): # Ensure embedding column exists
+        write_debug(f"Hybrid search cancelled due to missing table or columns in table '{table_name}'.", append=True)
+        return {
+            "error": "Table or specified columns do not exist",
+            "table_name": table_name,
+            "columns_checked": column_names + ["embedding"]
+        }
+
+    start_time = datetime.now()
+    
+    try:
+        # 2. Generate embedding for the query string
+        query_embedding = get_text_embeddings(query_string)
+        if query_embedding is None:
+            write_debug(f"Error: Could not generate embedding for query string: '{query_string}'", append=True)
+            return {
+                "error": "Could not generate embedding for query string",
+                "query_string": query_string
+            }
+
+        # 3. Perform hybrid search
+        retrieved_records = perform_hybrid_search(table_name, query_embedding, num_records, column_names, keywords)
+        
+        end_time = datetime.now()
+        time_taken = (end_time - start_time).total_seconds()
+
+        total_words_from_retrieved_chunks = 0
+        # Calculate word count for each retrieved record
+        for record in retrieved_records:
+            if 'chunk_text' in record and record['chunk_text'] is not None:
+                word_count = len(record['chunk_text'].split())
+                record['chunk_word_count'] = word_count
+                total_words_from_retrieved_chunks += word_count
+            else:
+                record['chunk_word_count'] = 0 # Or handle as appropriate if chunk_text is missing/None
+
+        write_debug(f"Hybrid search completed in {time_taken:.2f} seconds. Retrieved {len(retrieved_records)} records.", append=True)
+
+        # 4. Return JSON object
+        return {
+            "num_records_chosen_for_retrieval": num_records,
+            "time_it_took_to_retrieve_data_from_table": f"{time_taken:.2f} seconds",
+            "total_words_from_retrieved_chunks": total_words_from_retrieved_chunks,
+            "retrieved_records": retrieved_records
+        }
+
+    except Exception as e:
+        write_debug(f"An unexpected error occurred during hybrid search: {str(e)}", append=True)
+        return {
+            "error": f"An unexpected error occurred: {str(e)}",
+            "query_string": query_string,
+            "table_name": table_name
+        }
+
+write_debug(f"Final response:\n\n{hybrid_search_onenote("What is a pid number and what is it used for?", num_records=3, keywords=None)}", append=True) 
 

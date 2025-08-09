@@ -4,6 +4,7 @@ import sys
 import os
 from datetime import datetime
 from psycopg2.extras import RealDictCursor
+from pgvector.psycopg2 import register_vector # Import register_vector
 
 # Add the project root to Python path for imports
 sys.path.append(os.path.join(os.path.dirname(__file__), '..', '..'))
@@ -26,7 +27,9 @@ def get_database_connection():
             user=DATABASE_CONFIG['user'],
             password=DATABASE_CONFIG['password']
         )
-        write_debug("Successfully obtained database connection.", append=True)
+        # IMPORTANT: Register vector type for the connection
+        register_vector(connection)
+        write_debug("Successfully obtained database connection and registered vector type.", append=True)
         return connection
     except psycopg2.Error as e:
         write_debug(f"Database connection error: {str(e)}", append=True)
@@ -56,6 +59,126 @@ def onenote_notebook_exists(notebook_name):
     except Exception as e:
         write_debug(f"Error checking if notebook '{notebook_name}' exists: {str(e)}", append=True)
         return False
+    finally:
+        if cursor:
+            cursor.close()
+        if connection:
+            connection.close()
+
+def check_table_and_columns_exist(table_name, column_names):
+    """
+    Checks if a given table exists and if all specified columns exist within that table.
+    
+    Args:
+        table_name (str): The name of the table to check.
+        column_names (list): A list of column names to check for existence.
+        
+    Returns:
+        bool: True if the table and all columns exist, False otherwise.
+    """
+    write_debug(f"Checking existence of table '{table_name}' and columns: {column_names}", append=True)
+    connection = None
+    cursor = None
+    try:
+        connection = get_database_connection()
+        cursor = connection.cursor()
+
+        # Check if table exists
+        cursor.execute(f"SELECT EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = %s)", (table_name,))
+        table_exists = cursor.fetchone()[0]
+        if not table_exists:
+            write_debug(f"Error: Table '{table_name}' does not exist.", append=True)
+            return False
+
+        # Check if columns exist
+        for col_name in column_names:
+            cursor.execute(f"SELECT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = %s AND column_name = %s)", (table_name, col_name))
+            col_exists = cursor.fetchone()[0]
+            if not col_exists:
+                write_debug(f"Error: Column '{col_name}' does not exist in table '{table_name}'.", append=True)
+                return False
+        
+        write_debug(f"Table '{table_name}' and all specified columns exist.", append=True)
+        return True
+    except Exception as e:
+        write_debug(f"Error checking table and column existence: {str(e)}", append=True)
+        return False
+    finally:
+        if cursor:
+            cursor.close()
+        if connection:
+            connection.close()
+
+def perform_hybrid_search(table_name, query_embedding, num_records, column_names, keywords=None):
+    """
+    Performs a hybrid search combining vector similarity and keyword matching.
+    
+    Args:
+        table_name (str): The name of the table to search.
+        query_embedding (list): The embedding vector of the query string.
+        num_records (int): The number of records to retrieve.
+        column_names (list): A list of column names to retrieve for each record.
+        keywords (str, optional): Keywords for full-text search. Defaults to None.
+        
+    Returns:
+        list: A list of dictionaries, where each dictionary represents a retrieved record.
+    """
+    write_debug(f"Performing hybrid search on table '{table_name}' for {num_records} records with keywords: '{keywords}'", append=True)
+    connection = None
+    cursor = None
+    combined_records = []
+    try:
+        connection = get_database_connection()
+        cursor = connection.cursor(cursor_factory=RealDictCursor) # Use RealDictCursor to get results as dictionaries
+
+        # Construct the SELECT clause for specified columns
+        select_columns_str = ", ".join(column_names)
+        
+        # --- 1. Vector Similarity Search ---
+        vector_search_sql = f"""
+        SELECT {select_columns_str}, 1 - (embedding <=> %s::vector) AS similarity
+        FROM {table_name}
+        ORDER BY embedding <=> %s::vector
+        LIMIT %s;
+        """
+        write_debug(f"Executing vector search query: {vector_search_sql}", append=True)
+        cursor.execute(vector_search_sql, (query_embedding, query_embedding, num_records))
+        vector_results = cursor.fetchall()
+        write_debug(f"Retrieved {len(vector_results)} records from vector search.", append=True)
+        
+        combined_records.extend(vector_results)
+
+        # --- 2. Keyword Search (if keywords provided) ---
+        if keywords:
+            keyword_search_sql = f"""
+            SELECT {select_columns_str}, 0.0 AS similarity -- Assign a default similarity for keyword matches
+            FROM {table_name}
+            WHERE chunk_text ILIKE %s -- Assuming 'chunk_text' is the column for keyword search
+            LIMIT %s;
+            """
+            # Add wildcards for broader search
+            search_pattern = f"%{keywords}%"
+            write_debug(f"Executing keyword search query: {keyword_search_sql} with pattern: {search_pattern}", append=True)
+            cursor.execute(keyword_search_sql, (search_pattern, num_records))
+            keyword_results = cursor.fetchall()
+            write_debug(f"Retrieved {len(keyword_results)} records from keyword search.", append=True)
+
+            # Combine and de-duplicate results
+            # Prioritize vector results, add unique keyword results
+            existing_ids = {record['id'] for record in combined_records if 'id' in record} # Assuming 'id' is a unique identifier
+            
+            for record in keyword_results:
+                if 'id' in record and record['id'] not in existing_ids:
+                    combined_records.append(record)
+                    existing_ids.add(record['id'])
+                elif 'id' not in record: # If no ID, just append (less ideal but handles cases without ID)
+                    combined_records.append(record)
+        
+        write_debug(f"Successfully retrieved {len(combined_records)} records from hybrid search.", append=True)
+        return combined_records
+    except Exception as e:
+        write_debug(f"Error performing hybrid search on table '{table_name}': {str(e)}", append=True)
+        return []
     finally:
         if cursor:
             cursor.close()
