@@ -347,5 +347,5 @@ def hybrid_search_onenote(query_string, num_records=3, table_name="onenote_chunk
             "table_name": table_name
         }
 
-write_debug(f"Final response:\n\n{hybrid_search_onenote("What is a pid number and what is it used for?", num_records=3, keywords=None)}", append=True) 
+
 
