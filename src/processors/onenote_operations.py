@@ -348,4 +348,3 @@ def hybrid_search_onenote(query_string, num_records=3, table_name="onenote_chunk
         }
 
 
-

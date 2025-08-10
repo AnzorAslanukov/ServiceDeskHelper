@@ -84,4 +84,5 @@ def generate_context_aware_response(user_question, keywords=None):
         write_debug(f"Error generating context-aware response: {str(e)}", append=True)
         return {"error": f"Failed to generate response: {str(e)}"}
 
+# write_debug(f"LLM response:\n\n{generate_context_aware_response("")}")
 

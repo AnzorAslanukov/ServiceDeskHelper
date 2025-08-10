@@ -46,6 +46,14 @@ APP_CONFIG = {
     'debug': os.getenv('DEBUG', 'false').lower() == 'true'
 }
 
+# Athena Configuration
+ATHENA_CONFIG = {
+    'base_url': os.getenv('ATHENA_BASE_URL'),
+    'client_id': os.getenv('ATHENA_CLIENT_ID'), # Renamed from API_KEY
+    'username': os.getenv('ATHENA_USERNAME'),
+    'password': os.getenv('ATHENA_PASSWORD')
+}
+
 # Validation
 def validate_config():
     """Validate that required environment variables are set and test Databricks endpoints"""
@@ -57,7 +65,11 @@ def validate_config():
         'POSTGRES_PASSWORD', 
         'DATABRICKS_EMBEDDING_URL',
         'DATABRICKS_TEXT_GENERATION_URL',
-        'DATABRICKS_API_KEY'
+        'DATABRICKS_API_KEY',
+        'ATHENA_BASE_URL',
+        'ATHENA_CLIENT_ID', # Renamed from API_KEY
+        'ATHENA_USERNAME',
+        'ATHENA_PASSWORD'
     ]
     
     missing_vars = [var for var in required_vars if not os.getenv(var)]
