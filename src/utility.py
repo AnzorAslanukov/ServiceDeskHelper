@@ -7,7 +7,6 @@ import sys
 sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
 
 from src.config import DATABRICKS_CONFIG, write_debug
-from src.processors.onenote_operations import hybrid_search_onenote
 # Assuming prompts.py contains a variable like LLM_PROMPT_TEMPLATE
 from src.prompts import LLM_PROMPT_TEMPLATE 
 
@@ -60,13 +59,14 @@ def get_text_embeddings(text):
         write_debug(f"An unexpected error occurred during embedding generation: {e}", append=True)
         raise Exception(f"Failed to get embeddings: Unexpected error - {e}")
 
-def generate_context_aware_response(user_question, keywords=None):
+def generate_context_aware_response(user_question, hybrid_search_function, keywords=None):
     """
     Generates a context-aware response using a text generation LLM,
     based on a user question and relevant data retrieved from the database.
     
     Args:
         user_question (str): The question from the user.
+        hybrid_search_function (function): The function to use for hybrid search (e.g., hybrid_search_onenote).
         keywords (list, optional): A list of strings representing keywords for the search. Defaults to None.
         
     Returns:
@@ -78,8 +78,8 @@ def generate_context_aware_response(user_question, keywords=None):
         # Convert list of keywords to a single string if provided
         keywords_str = " ".join(keywords) if isinstance(keywords, list) else keywords
 
-        # 1. Call hybrid_search_onenote to get relevant data
-        search_results = hybrid_search_onenote(query_string=user_question, num_records=5, keywords=keywords_str) # Retrieve 5 records by default
+        # 1. Call hybrid_search_function to get relevant data
+        search_results = hybrid_search_function(query_string=user_question, num_records=5, keywords=keywords_str) # Retrieve 5 records by default
         
         retrieved_chunks = search_results.get("retrieved_records", [])
         
@@ -133,16 +133,24 @@ def generate_context_aware_response(user_question, keywords=None):
         write_debug(f"Error generating context-aware response: {str(e)}", append=True)
         return {"error": f"Failed to generate response: {str(e)}"}
     
-ticket_description = """
-EU unable to open pharmacy cabniets with badge.
-unable to open med cart cabinet 
-with badge. 
+# Example usage (ensure hybrid_search_onenote is imported only for this example to avoid circular dependency)
+try:
+    from src.processors.onenote_operations import hybrid_search_onenote
+except ImportError:
+    hybrid_search_onenote = None
+    write_debug("Warning: Could not import hybrid_search_onenote. Example usage will not work.", append=True)
 
-location : pvaillion campus. ground floor. 
-time of evvent. : 8/11/2025
-badge number : 488268
-user : matheani
-"""
+if hybrid_search_onenote:
+    ticket_description = """
+    EU unable to open pharmacy cabniets with badge.
+    unable to open med cart cabinet 
+    with badge. 
 
-# write_debug(f"LLM response:\n\n{generate_context_aware_response(f"What groups support the ticket with the following description:\n\n{ticket_description}")}")
-write_debug(f"LLM response:\n\n{generate_context_aware_response("What Penn Medicine UPHS on-call groups support Citrix?")}")
+    location : pvaillion campus. ground floor. 
+    time of evvent. : 8/11/2025
+    badge number : 488268
+    user : matheani
+    """
+
+    # write_debug(f"LLM response:\n\n{generate_context_aware_response(f"What groups support the ticket with the following description:\n\n{ticket_description}", hybrid_search_onenote)}")
+    write_debug(f"LLM response:\n\n{generate_context_aware_response("What Penn Medicine UPHS on-call groups support Citrix?", hybrid_search_onenote)}", append=True)

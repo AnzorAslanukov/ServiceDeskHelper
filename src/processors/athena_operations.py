@@ -7,7 +7,8 @@ from datetime import datetime, timedelta
 # Add the project root to Python path for imports
 sys.path.append(os.path.join(os.path.dirname(__file__), '..', '..'))
 
-from src.config import ATHENA_CONFIG, write_debug 
+from src.config import ATHENA_CONFIG, write_debug
+from src.utility import get_text_embeddings
 
 # Global variable to store the token and its expiration time
 _ATHENA_TOKEN = None
@@ -164,3 +165,136 @@ def get_all_ticket_details(entity_id):
         write_debug(f"Error retrieving all details for entity ID {entity_id}: {str(e)}", append=True)
         raise Exception(f"Error retrieving all details for entity ID {entity_id}: {str(e)}")
 
+def extract_ticket_data(raw_ticket_data):
+    """
+    Extracts and transforms specific fields from a raw Athena ticket JSON object
+    into a new JSON object matching the athena_tickets table schema.
+    
+    Args:
+        raw_ticket_data (dict): The raw JSON object from get_all_ticket_details.
+        
+    Returns:
+        dict: A new JSON object with extracted and transformed data.
+    """
+    write_debug("Starting data extraction and transformation for ticket.", append=True)
+    
+    if not raw_ticket_data:
+        write_debug("No raw ticket data provided for extraction.", append=True)
+        return None
+
+    # Helper to safely get nested values
+    def get_nested_value(data, keys, default=None):
+        if not isinstance(data, dict):
+            return default
+        current = data
+        for key in keys:
+            if isinstance(current, dict) and key in current:
+                current = current[key]
+            else:
+                return default
+        return current
+
+    # Helper to convert date strings to ISO format or None
+    def to_iso_datetime(date_str):
+        if date_str:
+            try:
+                # Handle potential timezone info in string
+                dt_obj = datetime.fromisoformat(date_str.replace('Z', '+00:00'))
+                return dt_obj.isoformat()
+            except ValueError:
+                write_debug(f"Warning: Could not parse date string: {date_str}", append=True)
+                return None
+        return None
+
+    extracted_data = {}
+
+    try:
+        # Primary identifiers
+        extracted_data['entity_id'] = raw_ticket_data.get('entityId')
+        extracted_data['ticket_id'] = raw_ticket_data.get('id')
+        
+        # Core ticket information
+        extracted_data['title'] = raw_ticket_data.get('title')
+        extracted_data['description'] = raw_ticket_data.get('description')
+        extracted_data['escalated'] = raw_ticket_data.get('escalated', False)
+        extracted_data['resolution_description'] = raw_ticket_data.get('resolutionDescription')
+        extracted_data['message'] = raw_ticket_data.get('message')
+        extracted_data['priority'] = raw_ticket_data.get('priority')
+        
+        # Location information
+        extracted_data['location_name'] = get_nested_value(raw_ticket_data, ['location', 'name'])
+        extracted_data['floor_name'] = get_nested_value(raw_ticket_data, ['floor', 'name'])
+        extracted_data['affect_patient_care'] = raw_ticket_data.get('affect_Patient_Care')
+        extracted_data['confirmed_resolution'] = get_nested_value(raw_ticket_data, ['confrimed_Resolution', 'name'])
+        
+        # Dates
+        extracted_data['created_date'] = to_iso_datetime(raw_ticket_data.get('createdDate'))
+        extracted_data['last_modified'] = to_iso_datetime(raw_ticket_data.get('lastModified'))
+        
+        # Affected User (minimal info)
+        extracted_data['affected_user_domain'] = get_nested_value(raw_ticket_data, ['affectedUser', 'domain'])
+        extracted_data['affected_user_company'] = get_nested_value(raw_ticket_data, ['affectedUser', 'company'])
+        extracted_data['affected_user_department'] = get_nested_value(raw_ticket_data, ['affectedUser', 'department'])
+        extracted_data['affected_user_title'] = get_nested_value(raw_ticket_data, ['affectedUser', 'title'])
+        
+        # Assigned To User (minimal info)
+        extracted_data['assigned_to_user_domain'] = get_nested_value(raw_ticket_data, ['assignedToUser', 'domain'])
+        extracted_data['assigned_to_user_company'] = get_nested_value(raw_ticket_data, ['assignedToUser', 'company'])
+        extracted_data['assigned_to_user_department'] = get_nested_value(raw_ticket_data, ['assignedToUser', 'department'])
+        extracted_data['assigned_to_user_title'] = get_nested_value(raw_ticket_data, ['assignedToUser', 'title'])
+        
+        # Resolved By User (minimal info)
+        extracted_data['resolved_by_user_domain'] = get_nested_value(raw_ticket_data, ['resolvedByUser', 'domain'])
+        extracted_data['resolved_by_user_company'] = get_nested_value(raw_ticket_data, ['resolvedByUser', 'company'])
+        extracted_data['resolved_by_user_department'] = get_nested_value(raw_ticket_data, ['resolvedByUser', 'department'])
+        extracted_data['resolved_by_user_title'] = get_nested_value(raw_ticket_data, ['resolvedByUser', 'title'])
+        
+        # Analyst Comments
+        analyst_comments_list = raw_ticket_data.get('analystComments', [])
+        analyst_comments_dict = {}
+        for comment in analyst_comments_list:
+            entered_date = to_iso_datetime(comment.get('enteredDate'))
+            comment_text = comment.get('comment')
+            if entered_date and comment_text:
+                analyst_comments_dict[entered_date] = comment_text
+        extracted_data['analyst_comments'] = analyst_comments_dict
+        
+        # Vector embeddings
+        title_text = extracted_data.get('title')
+        description_text = extracted_data.get('description')
+        
+        if title_text:
+            embedding = get_text_embeddings(title_text)
+            extracted_data['title_embedding'] = embedding
+            write_debug(f"Generated title_embedding (first 5 elements): {embedding[:5]}...", append=True)
+        else:
+            extracted_data['title_embedding'] = None
+            write_debug("Warning: Title is missing, cannot generate title_embedding.", append=True)
+            
+        if description_text:
+            embedding = get_text_embeddings(description_text)
+            extracted_data['description_embedding'] = embedding
+            write_debug(f"Generated description_embedding (first 5 elements): {embedding[:5]}...", append=True)
+        else:
+            extracted_data['description_embedding'] = None
+            write_debug("Warning: Description is missing, cannot generate description_embedding.", append=True)
+
+        write_debug("Successfully extracted and transformed ticket data.", data={k: v[:5] if isinstance(v, list) and k.endswith('_embedding') else v for k, v in extracted_data.items()}, append=True)
+        return extracted_data
+        
+    except Exception as e:
+        write_debug(f"Error during data extraction and transformation: {str(e)}", append=True)
+        return None
+
+# Example usage of the functions
+# Replace "IR9882530" with an actual ticket ID for testing search_ticket_by_id
+# athena_search_response = search_ticket_by_id("IR9882530")
+# write_debug("Athena Search Response:", data=athena_search_response, append=True)
+
+# Replace "837f734e-a72d-d40f-bfa3-1824854cb715" with an actual entity ID for testing get_all_ticket_details
+raw_ticket_data = get_all_ticket_details("837f734e-a72d-d40f-bfa3-1824854cb715")
+if raw_ticket_data:
+    extracted_ticket_data = extract_ticket_data(raw_ticket_data)
+    # write_debug("Extracted Ticket Data:", data=extracted_ticket_data, append=True)
+else:
+    write_debug("Failed to retrieve raw ticket data, skipping extraction.", append=True)
