@@ -286,15 +286,4 @@ def extract_ticket_data(raw_ticket_data):
         write_debug(f"Error during data extraction and transformation: {str(e)}", append=True)
         return None
 
-# Example usage of the functions
-# Replace "IR9882530" with an actual ticket ID for testing search_ticket_by_id
-# athena_search_response = search_ticket_by_id("IR9882530")
-# write_debug("Athena Search Response:", data=athena_search_response, append=True)
 
-# Replace "837f734e-a72d-d40f-bfa3-1824854cb715" with an actual entity ID for testing get_all_ticket_details
-raw_ticket_data = get_all_ticket_details("837f734e-a72d-d40f-bfa3-1824854cb715")
-if raw_ticket_data:
-    extracted_ticket_data = extract_ticket_data(raw_ticket_data)
-    # write_debug("Extracted Ticket Data:", data=extracted_ticket_data, append=True)
-else:
-    write_debug("Failed to retrieve raw ticket data, skipping extraction.", append=True)

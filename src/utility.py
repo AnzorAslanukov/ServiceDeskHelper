@@ -133,24 +133,3 @@ def generate_context_aware_response(user_question, hybrid_search_function, keywo
         write_debug(f"Error generating context-aware response: {str(e)}", append=True)
         return {"error": f"Failed to generate response: {str(e)}"}
     
-# Example usage (ensure hybrid_search_onenote is imported only for this example to avoid circular dependency)
-try:
-    from src.processors.onenote_operations import hybrid_search_onenote
-except ImportError:
-    hybrid_search_onenote = None
-    write_debug("Warning: Could not import hybrid_search_onenote. Example usage will not work.", append=True)
-
-if hybrid_search_onenote:
-    ticket_description = """
-    EU unable to open pharmacy cabniets with badge.
-    unable to open med cart cabinet 
-    with badge. 
-
-    location : pvaillion campus. ground floor. 
-    time of evvent. : 8/11/2025
-    badge number : 488268
-    user : matheani
-    """
-
-    # write_debug(f"LLM response:\n\n{generate_context_aware_response(f"What groups support the ticket with the following description:\n\n{ticket_description}", hybrid_search_onenote)}")
-    write_debug(f"LLM response:\n\n{generate_context_aware_response("What Penn Medicine UPHS on-call groups support Citrix?", hybrid_search_onenote)}", append=True)
