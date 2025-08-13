@@ -11,6 +11,55 @@ from src.processors.onenote_operations import hybrid_search_onenote
 # Assuming prompts.py contains a variable like LLM_PROMPT_TEMPLATE
 from src.prompts import LLM_PROMPT_TEMPLATE 
 
+def get_text_embeddings(text):
+    """
+    Generates embeddings for a given text using the Databricks embedding model.
+    
+    Args:
+        text (str): The text content to vectorize.
+        
+    Returns:
+        list: A list of floats representing the embedding vector.
+    """
+    write_debug(f"Attempting to generate embeddings for text of length {len(text)}", append=True)
+    embedding_url = DATABRICKS_CONFIG['embedding_url']
+    api_key = DATABRICKS_CONFIG['api_key']
+
+    headers = {
+        'Authorization': f'Bearer {api_key}',
+        'Content-Type': 'application/json'
+    }
+
+    payload = {
+        "input": text
+    }
+
+    try:
+        response = requests.post(
+            embedding_url,
+            headers=headers,
+            json=payload,
+            timeout=30 # Standard timeout for embedding
+        )
+        response.raise_for_status() # Raise an exception for HTTP errors (4xx or 5xx) 
+        
+        embedding_response = response.json()
+        
+        if 'data' in embedding_response and len(embedding_response['data']) > 0:
+            embeddings = embedding_response['data'][0]['embedding']
+            write_debug(f"Successfully generated embeddings for text (first 10 elements): {embeddings[:10]}...", append=True)
+            return embeddings
+        else:
+            write_debug(f"Embedding API response missing 'data' or empty.", embedding_response, append=True)
+            raise Exception("Failed to get embeddings: Invalid API response format.")
+
+    except requests.exceptions.RequestException as e:
+        write_debug(f"Embedding API call failed: {e}", append=True)
+        raise Exception(f"Failed to get embeddings: API call error - {e}")
+    except Exception as e:
+        write_debug(f"An unexpected error occurred during embedding generation: {e}", append=True)
+        raise Exception(f"Failed to get embeddings: Unexpected error - {e}")
+
 def generate_context_aware_response(user_question, keywords=None):
     """
     Generates a context-aware response using a text generation LLM,
@@ -83,6 +132,17 @@ def generate_context_aware_response(user_question, keywords=None):
     except Exception as e:
         write_debug(f"Error generating context-aware response: {str(e)}", append=True)
         return {"error": f"Failed to generate response: {str(e)}"}
+    
+ticket_description = """
+EU unable to open pharmacy cabniets with badge.
+unable to open med cart cabinet 
+with badge. 
 
-# write_debug(f"LLM response:\n\n{generate_context_aware_response("")}")
+location : pvaillion campus. ground floor. 
+time of evvent. : 8/11/2025
+badge number : 488268
+user : matheani
+"""
 
+# write_debug(f"LLM response:\n\n{generate_context_aware_response(f"What groups support the ticket with the following description:\n\n{ticket_description}")}")
+write_debug(f"LLM response:\n\n{generate_context_aware_response("What Penn Medicine UPHS on-call groups support Citrix?")}")

@@ -11,8 +11,9 @@ from bs4 import BeautifulSoup # pip install beautifulsoup4
 # Add the project root to Python path for imports
 sys.path.append(os.path.join(os.path.dirname(__file__), '..', '..'))
 
-from src.config import DATABRICKS_CONFIG, FILE_PATHS, write_debug
+from src.config import FILE_PATHS, write_debug
 from src.processors.database_operations import add_onenote_chunk, onenote_section_exists, delete_onenote_records, check_table_and_columns_exist, perform_hybrid_search
+from src.utility import get_text_embeddings
 
 
 def extract_text_from_docx(filepath):
@@ -73,55 +74,6 @@ def extract_text_from_docx(filepath):
     except Exception as e:
         write_debug(f"Error extracting text from DOCX using mammoth: {filepath}: {str(e)}", append=True)
         raise
-
-def get_text_embeddings(text):
-    """
-    Generates embeddings for a given text using the Databricks embedding model.
-    
-    Args:
-        text (str): The text content to vectorize.
-        
-    Returns:
-        list: A list of floats representing the embedding vector.
-    """
-    write_debug(f"Attempting to generate embeddings for text of length {len(text)}", append=True)
-    embedding_url = DATABRICKS_CONFIG['embedding_url']
-    api_key = DATABRICKS_CONFIG['api_key']
-
-    headers = {
-        'Authorization': f'Bearer {api_key}',
-        'Content-Type': 'application/json'
-    }
-
-    payload = {
-        "input": text
-    }
-
-    try:
-        response = requests.post(
-            embedding_url,
-            headers=headers,
-            json=payload,
-            timeout=30 # Standard timeout for embedding
-        )
-        response.raise_for_status() # Raise an exception for HTTP errors (4xx or 5xx) 
-        
-        embedding_response = response.json()
-        
-        if 'data' in embedding_response and len(embedding_response['data']) > 0:
-            embeddings = embedding_response['data'][0]['embedding']
-            write_debug(f"Successfully generated embeddings for text (first 10 elements): {embeddings[:10]}...", append=True)
-            return embeddings
-        else:
-            write_debug(f"Embedding API response missing 'data' or empty.", embedding_response, append=True)
-            raise Exception("Failed to get embeddings: Invalid API response format.")
-
-    except requests.exceptions.RequestException as e:
-        write_debug(f"Embedding API call failed: {e}", append=True)
-        raise Exception(f"Failed to get embeddings: API call error - {e}")
-    except Exception as e:
-        write_debug(f"An unexpected error occurred during embedding generation: {e}", append=True)
-        raise Exception(f"Failed to get embeddings: Unexpected error - {e}")
 
 def process_single_docx_file(filepath, overwrite_existing=False):
     """
@@ -346,5 +298,3 @@ def hybrid_search_onenote(query_string, num_records=3, table_name="onenote_chunk
             "query_string": query_string,
             "table_name": table_name
         }
-
-

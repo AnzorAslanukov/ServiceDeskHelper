@@ -20,7 +20,7 @@ DATABASE_CONFIG = {
 ONENOTE_CHUNKS_TABLE = 'onenote_chunks'
 
 # Database Connection String
-DATABASE_URL = os.getenv('DATABASE_URL')
+DATAauth_url = os.getenv('DATAauth_url')
 
 # Databricks Configuration
 DATABRICKS_CONFIG = {
@@ -48,10 +48,12 @@ APP_CONFIG = {
 
 # Athena Configuration
 ATHENA_CONFIG = {
+    'auth_url': os.getenv('ATHENA_AUTH_URL'),
     'base_url': os.getenv('ATHENA_BASE_URL'),
     'client_id': os.getenv('ATHENA_CLIENT_ID'), # Renamed from API_KEY
     'username': os.getenv('ATHENA_USERNAME'),
-    'password': os.getenv('ATHENA_PASSWORD')
+    'password': os.getenv('ATHENA_PASSWORD'),
+    'json_template': os.getenv('ATHENA_JSON_TEMPLATE')
 }
 
 # Validation
@@ -66,10 +68,12 @@ def validate_config():
         'DATABRICKS_EMBEDDING_URL',
         'DATABRICKS_TEXT_GENERATION_URL',
         'DATABRICKS_API_KEY',
+        'ATHENA_AUTH_URL',
         'ATHENA_BASE_URL',
         'ATHENA_CLIENT_ID', # Renamed from API_KEY
         'ATHENA_USERNAME',
-        'ATHENA_PASSWORD'
+        'ATHENA_PASSWORD',
+        'ATHENA_JSON_TEMPLATE'
     ]
     
     missing_vars = [var for var in required_vars if not os.getenv(var)]
