@@ -32,6 +32,7 @@ CREATE TABLE athena_tickets (
     floor_name TEXT,
     affect_patient_care TEXT,
     confirmed_resolution TEXT,
+    tier_queue_name TEXT,
     
     -- Dates
     created_date TIMESTAMP WITH TIME ZONE,

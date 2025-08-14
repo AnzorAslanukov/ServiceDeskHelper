@@ -9,6 +9,7 @@ sys.path.append(os.path.join(os.path.dirname(__file__), '..', '..'))
 
 from src.config import ATHENA_CONFIG, write_debug
 from src.utility import get_text_embeddings
+from src.processors.database_operations import insert_or_update_athena_ticket
 
 # Global variable to store the token and its expiration time
 _ATHENA_TOKEN = None
@@ -72,12 +73,13 @@ def _get_athena_token():
         write_debug(f"An unexpected error occurred while obtaining Athena token: {str(e)}", append=True)
         raise Exception(f"An unexpected error occurred while obtaining Athena token: {str(e)}")
     
-def search_ticket_by_id(ticket_id):
+def search_ticket_by_id(ticket_id, log_debug=True):
     """
     Retrieves ticket details from Athena using a ticket ID and a JSON template.
     
     Args:
         ticket_id (str): The ID of the ticket (e.g., "IR1234567").
+        log_debug (bool): If True, prints debug information to debug.txt. Defaults to True.
     
     Returns:
         dict: The response JSON containing ticket data, or None if failed.
@@ -86,7 +88,8 @@ def search_ticket_by_id(ticket_id):
         token = _get_athena_token()
         
         url = f"{ATHENA_CONFIG['base_url']}view/workitem?type=incident"
-        write_debug(f"URL:\n{url}", append=True)
+        if log_debug:
+            write_debug(f"URL:\n{url}", append=True)
         
         headers = {
             "Content-Type": "application/json",
@@ -97,28 +100,32 @@ def search_ticket_by_id(ticket_id):
         json_payload_str = ATHENA_CONFIG['json_template'].replace("{{TICKET_ID}}", ticket_id)
         json_payload = json.loads(json_payload_str)
 
-        write_debug(f"Making Athena API request for ticket ID: {ticket_id}", {
-            "url": url,
-            "json_payload": json_payload
-        }, append=True)
+        if log_debug:
+            write_debug(f"Making Athena API request for ticket ID: {ticket_id}", {
+                "url": url,
+                "json_payload": json_payload
+            }, append=True)
         
         response = requests.post(url, headers=headers, json=json_payload, timeout=30)
         
         if response.status_code == 200:
             response_data = response.json()
             
-            write_debug(f"Successfully retrieved ticket details for {ticket_id}", {
-                "status_code": response.status_code,
-                "result_count": len(response_data.get("result", []))
-            }, append=True)
+            if log_debug:
+                write_debug(f"Successfully retrieved ticket details for {ticket_id}", {
+                    "status_code": response.status_code,
+                    "result_count": len(response_data.get("result", []))
+                }, append=True)
             
             return response_data
         else:
-            write_debug(f"Failed to get ticket details for {ticket_id}: {response.status_code} - {response.text}", append=True)
+            if log_debug:
+                write_debug(f"Failed to get ticket details for {ticket_id}: {response.status_code} - {response.text}", append=True)
             return None
             
     except Exception as e:
-        write_debug(f"Error retrieving ticket details for {ticket_id}: {str(e)}", append=True)
+        if log_debug:
+            write_debug(f"Error retrieving ticket details for {ticket_id}: {str(e)}", append=True)
         raise Exception(f"Error retrieving ticket details for {ticket_id}: {str(e)}")
 
 def get_all_ticket_details(entity_id):
@@ -226,6 +233,7 @@ def extract_ticket_data(raw_ticket_data):
         extracted_data['floor_name'] = get_nested_value(raw_ticket_data, ['floor', 'name'])
         extracted_data['affect_patient_care'] = raw_ticket_data.get('affect_Patient_Care')
         extracted_data['confirmed_resolution'] = get_nested_value(raw_ticket_data, ['confrimed_Resolution', 'name'])
+        extracted_data['tier_queue_name'] = get_nested_value(raw_ticket_data, ['tierQueue', 'name'])
         
         # Dates
         extracted_data['created_date'] = to_iso_datetime(raw_ticket_data.get('createdDate'))
@@ -285,5 +293,109 @@ def extract_ticket_data(raw_ticket_data):
     except Exception as e:
         write_debug(f"Error during data extraction and transformation: {str(e)}", append=True)
         return None
+
+# Example usage of the functions
+# Loop through ticket numbers and log specific details
+base_ticket_id = "IR8500000"
+prefix = base_ticket_id[:2]
+start_num = int(base_ticket_id[2:])
+num_iterations = 100 # You can adjust the number of iterations
+
+# write_debug(f"Starting loop to search for tickets from {base_ticket_id} downwards...", append=True)
+
+for i in range(num_iterations):
+    current_num = start_num - i
+    current_ticket_id = f"{prefix}{current_num}"
+    
+    # write_debug(f"Searching for ticket: {current_ticket_id}", append=True)
+    
+    try:
+        ticket_response = search_ticket_by_id(current_ticket_id, log_debug=False)
+        
+        if ticket_response and ticket_response.get('resultCount', 0) > 0:
+            ticket_data = ticket_response['result'][0]
+            ticket_name = ticket_data.get('id')
+            created_date = ticket_data.get('createdDate')
+            
+            write_debug(f"Ticket Name: {ticket_name}", append=True)
+            write_debug(f"Created Date: {created_date}", append=True)
+        else:
+            write_debug(f"Ticket {current_ticket_id} not found or no results.", append=True)
+            
+    except Exception as e:
+        write_debug(f"Error searching for ticket {current_ticket_id}: {str(e)}", append=True)
+
+
+
+def process_athena_tickets_in_range(start_ticket_id):
+    """
+    Iterates through a range of ticket IDs, fetches data, extracts relevant fields,
+    and inserts/updates them into the athena_tickets table.
+    
+    Args:
+        start_ticket_id (str): The starting ticket ID (e.g., "IR9099941").
+    """
+    write_debug(f"Starting process_athena_tickets_in_range from {start_ticket_id}", append=True)
+
+    prefix = start_ticket_id[:2]
+    current_num = int(start_ticket_id[2:])
+    
+    tickets_found_count = 0
+    iterations_count = 0
+    records_added_count = 0
+    
+    while True:
+        iterations_count += 1
+        current_ticket_id = f"{prefix}{current_num}"
+        write_debug(f"Processing ticket number: {current_ticket_id}", append=True)
+
+        try:
+            # 1. Call search_ticket_by_id with log_debug=False
+            ticket_response = search_ticket_by_id(current_ticket_id, log_debug=False)
+            
+            # Check break condition: if resultCount is not more than 100
+            if ticket_response and ticket_response.get('resultCount', 0) <= 100:
+                write_debug(f"Breaking loop: search_ticket_by_id returned {ticket_response.get('resultCount', 0)} results (<= 100).", append=True)
+                break # Break the loop if condition met
+
+            if ticket_response and ticket_response.get('resultCount', 0) > 0:
+                tickets_found_count += 1
+                # Assuming the first result is the relevant one
+                entity_id = ticket_response['result'][0].get('entityId')
+                
+                if entity_id:
+                    # 2. Get full JSON object payload
+                    raw_ticket_data = get_all_ticket_details(entity_id)
+                    
+                    if raw_ticket_data:
+                        # 3. Extract relevant data
+                        extracted_ticket_data = extract_ticket_data(raw_ticket_data)
+                        
+                        if extracted_ticket_data:
+                            # 4. Insert/update into athena_tickets table
+                            success = insert_or_update_athena_ticket(extracted_ticket_data, overwrite_existing=True)
+                            if success:
+                                records_added_count += 1
+                                write_debug(f"Successfully processed and added/updated record for {current_ticket_id}.", append=True)
+                            else:
+                                write_debug(f"Failed to add/update record for {current_ticket_id}.", append=True)
+                        else:
+                            write_debug(f"Extraction of data failed for {current_ticket_id}.", append=True)
+                    else:
+                        write_debug(f"Failed to get all details for entity ID from {current_ticket_id}.", append=True)
+                else:
+                    write_debug(f"No entityId found for ticket {current_ticket_id}.", append=True)
+            else:
+                write_debug(f"Ticket {current_ticket_id} not found by search_ticket_by_id.", append=True)
+        
+        except Exception as e:
+            write_debug(f"An error occurred while processing ticket {current_ticket_id}: {str(e)}", append=True)
+        
+        current_num += 1 # Increment ticket number for next iteration
+
+    write_debug("--- Athena Ticket Processing Summary ---", append=True)
+    write_debug(f"Tickets found by search_ticket_by_id: {tickets_found_count}", append=True)
+    write_debug(f"Ticket numbers iterated through: {iterations_count}", append=True)
+    write_debug(f"Records added/updated in athena_tickets table: {records_added_count}", append=True)
 
 

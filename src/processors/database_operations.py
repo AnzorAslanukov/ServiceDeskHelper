@@ -65,6 +65,119 @@ def onenote_notebook_exists(notebook_name):
         if connection:
             connection.close()
 
+def insert_or_update_athena_ticket(ticket_data, overwrite_existing=False):
+    """
+    Inserts new Athena ticket data or updates an existing record in the athena_tickets table.
+    
+    Args:
+        ticket_data (dict): A dictionary containing ticket data, typically from extract_ticket_data.
+        overwrite_existing (bool): If True, updates the record if entity_id exists.
+                                   If False, skips insertion/update if entity_id exists.
+                                   Defaults to False.
+                                   
+    Returns:
+        bool: True if the operation was successful, False otherwise.
+    """
+    write_debug(f"Attempting to insert/update Athena ticket with entity_id: {ticket_data.get('entity_id')}", append=True)
+    connection = None
+    cursor = None
+    
+    if not ticket_data or 'entity_id' not in ticket_data:
+        write_debug("Invalid ticket_data provided for insert/update.", append=True)
+        return False
+
+    entity_id = ticket_data['entity_id']
+
+    try:
+        connection = get_database_connection()
+        cursor = connection.cursor()
+
+        # Check if record exists
+        cursor.execute("SELECT entity_id FROM athena_tickets WHERE entity_id = %s", (entity_id,))
+        existing_record = cursor.fetchone()
+
+        if existing_record:
+            if not overwrite_existing:
+                write_debug(f"Record with entity_id {entity_id} already exists. Skipping insertion (overwrite_existing=False).", append=True)
+                return True # Considered successful as no error occurred
+            else:
+                write_debug(f"Record with entity_id {entity_id} exists. Updating record.", append=True)
+                # Build UPDATE statement
+                update_columns = []
+                update_values = []
+                
+                # Exclude 'id' and 'entity_id' from update columns as they are primary/unique keys
+                # Also exclude 'created_at' as it's set on creation
+                for key, value in ticket_data.items():
+                    if key not in ['id', 'entity_id', 'created_at']:
+                        update_columns.append(f"{key} = %s")
+                        # Special handling for vector types and JSONB
+                        if key.endswith('_embedding'):
+                            update_values.append(value) # psycopg2.extras.register_vector handles list to vector
+                        elif key == 'analyst_comments':
+                            update_values.append(json.dumps(value)) # Convert dict to JSON string for JSONB
+                        else:
+                            update_values.append(value)
+                
+                update_values.append(datetime.now()) # for updated_at
+                update_values.append(entity_id) # for WHERE clause
+
+                update_sql = f"""
+                UPDATE athena_tickets
+                SET {', '.join(update_columns)}, updated_at = %s
+                WHERE entity_id = %s
+                """
+                cursor.execute(update_sql, tuple(update_values))
+                write_debug(f"Successfully updated record for entity_id: {entity_id}", append=True)
+
+        else:
+            write_debug(f"Record with entity_id {entity_id} does not exist. Inserting new record.", append=True)
+            # Build INSERT statement
+            columns = []
+            values = []
+            placeholders = []
+
+            for key, value in ticket_data.items():
+                # Skip 'id' as it's SERIAL PRIMARY KEY
+                if key == 'id':
+                    continue
+                columns.append(key)
+                
+                # Special handling for vector types and JSONB
+                if key.endswith('_embedding'):
+                    values.append(value) # psycopg2.extras.register_vector handles list to vector
+                    placeholders.append("%s::vector")
+                elif key == 'analyst_comments':
+                    values.append(json.dumps(value)) # Convert dict to JSON string for JSONB
+                    placeholders.append("%s::jsonb")
+                else:
+                    values.append(value)
+                    placeholders.append("%s")
+            
+            # Add processed_at, created_at, updated_at
+            columns.extend(['processed_at', 'created_at', 'updated_at'])
+            values.extend([datetime.now(), datetime.now(), datetime.now()])
+            placeholders.extend(["%s", "%s", "%s"])
+
+            insert_sql = f"""
+            INSERT INTO athena_tickets ({', '.join(columns)})
+            VALUES ({', '.join(placeholders)})
+            """
+            cursor.execute(insert_sql, tuple(values))
+            write_debug(f"Successfully inserted new record for entity_id: {entity_id}", append=True)
+
+        connection.commit()
+        return True
+
+    except Exception as e:
+        write_debug(f"Error inserting/updating Athena ticket {entity_id}: {str(e)}", append=True)
+        return False
+    finally:
+        if cursor:
+            cursor.close()
+        if connection:
+            connection.close()
+
 def check_table_and_columns_exist(table_name, column_names):
     """
     Checks if a given table exists and if all specified columns exist within that table.
