@@ -294,71 +294,41 @@ def extract_ticket_data(raw_ticket_data):
         write_debug(f"Error during data extraction and transformation: {str(e)}", append=True)
         return None
 
-# Example usage of the functions
-# Loop through ticket numbers and log specific details
-base_ticket_id = "IR8500000"
-prefix = base_ticket_id[:2]
-start_num = int(base_ticket_id[2:])
-num_iterations = 100 # You can adjust the number of iterations
-
-# write_debug(f"Starting loop to search for tickets from {base_ticket_id} downwards...", append=True)
-
-for i in range(num_iterations):
-    current_num = start_num - i
-    current_ticket_id = f"{prefix}{current_num}"
-    
-    # write_debug(f"Searching for ticket: {current_ticket_id}", append=True)
-    
-    try:
-        ticket_response = search_ticket_by_id(current_ticket_id, log_debug=False)
-        
-        if ticket_response and ticket_response.get('resultCount', 0) > 0:
-            ticket_data = ticket_response['result'][0]
-            ticket_name = ticket_data.get('id')
-            created_date = ticket_data.get('createdDate')
-            
-            write_debug(f"Ticket Name: {ticket_name}", append=True)
-            write_debug(f"Created Date: {created_date}", append=True)
-        else:
-            write_debug(f"Ticket {current_ticket_id} not found or no results.", append=True)
-            
-    except Exception as e:
-        write_debug(f"Error searching for ticket {current_ticket_id}: {str(e)}", append=True)
-
-
-
 def process_athena_tickets_in_range(start_ticket_id):
     """
     Iterates through a range of ticket IDs, fetches data, extracts relevant fields,
     and inserts/updates them into the athena_tickets table.
     
     Args:
-        start_ticket_id (str): The starting ticket ID (e.g., "IR9099941").
+        start_ticket_id (str): The starting ticket ID (e.g., "ticket_number").
     """
     write_debug(f"Starting process_athena_tickets_in_range from {start_ticket_id}", append=True)
 
-    prefix = start_ticket_id[:2]
+    # Extract the non-numeric prefix (e.g., "IR") from the ticket ID
+    prefix = start_ticket_id[:2] 
+    # Extract the numeric part of the ticket ID and convert to integer
     current_num = int(start_ticket_id[2:])
     
     tickets_found_count = 0
     iterations_count = 0
     records_added_count = 0
+    consecutive_failures = 0 # New counter for consecutive failures
+    MAX_CONSECUTIVE_FAILURES = 1000 # Define the threshold for breaking the loop
     
     while True:
         iterations_count += 1
-        current_ticket_id = f"{prefix}{current_num}"
-        write_debug(f"Processing ticket number: {current_ticket_id}", append=True)
+        current_ticket_id = f"{prefix}{current_num}" # Reconstruct the ticket ID for the current iteration
+        
+        # Clear debug.txt every 5 iterations to prevent bloating
+        clear_file = (iterations_count % 5 == 1) # Clear on 1st, 6th, 11th, etc. iteration
+        write_debug(f"Processing ticket number: {current_ticket_id}", append=not clear_file)
 
         try:
             # 1. Call search_ticket_by_id with log_debug=False
             ticket_response = search_ticket_by_id(current_ticket_id, log_debug=False)
             
-            # Check break condition: if resultCount is not more than 100
-            if ticket_response and ticket_response.get('resultCount', 0) <= 100:
-                write_debug(f"Breaking loop: search_ticket_by_id returned {ticket_response.get('resultCount', 0)} results (<= 100).", append=True)
-                break # Break the loop if condition met
-
             if ticket_response and ticket_response.get('resultCount', 0) > 0:
+                consecutive_failures = 0 # Reset consecutive failures on success
                 tickets_found_count += 1
                 # Assuming the first result is the relevant one
                 entity_id = ticket_response['result'][0].get('entityId')
@@ -386,16 +356,112 @@ def process_athena_tickets_in_range(start_ticket_id):
                 else:
                     write_debug(f"No entityId found for ticket {current_ticket_id}.", append=True)
             else:
-                write_debug(f"Ticket {current_ticket_id} not found by search_ticket_by_id.", append=True)
+                # No ticket found by search_ticket_by_id
+                consecutive_failures += 1
+                write_debug(f"Ticket {current_ticket_id} not found by search_ticket_by_id. Consecutive failures: {consecutive_failures}", append=True)
+                
+                if consecutive_failures >= MAX_CONSECUTIVE_FAILURES:
+                    write_debug(f"Breaking loop: {MAX_CONSECUTIVE_FAILURES} consecutive failures to find tickets.", append=True)
+                    break # Break the loop if consecutive failures reach the threshold
         
         except Exception as e:
-            write_debug(f"An error occurred while processing ticket {current_ticket_id}: {str(e)}", append=True)
+            consecutive_failures += 1 # Count exception as a failure
+            write_debug(f"An error occurred while processing ticket {current_ticket_id}: {str(e)}. Consecutive failures: {consecutive_failures}", append=True)
+            if consecutive_failures >= MAX_CONSECUTIVE_FAILURES:
+                write_debug(f"Breaking loop: {MAX_CONSECUTIVE_FAILURES} consecutive failures (including errors).", append=True)
+                break # Break the loop if consecutive failures reach the threshold
         
-        current_num += 1 # Increment ticket number for next iteration
+        current_num += 1 # Increment ticket number for the next iteration (counting up)
 
     write_debug("--- Athena Ticket Processing Summary ---", append=True)
     write_debug(f"Tickets found by search_ticket_by_id: {tickets_found_count}", append=True)
     write_debug(f"Ticket numbers iterated through: {iterations_count}", append=True)
     write_debug(f"Records added/updated in athena_tickets table: {records_added_count}", append=True)
 
+def get_ticket_display_and_description(ticket_id_str):
+    """
+    Retrieves display name and description for a given ticket ID
+    and logs them to debug.txt.
+    
+    Args:
+        ticket_id_str (str): The ID of the ticket (e.g., "IR1234567").
+    """
+    write_debug(f"Attempting to retrieve display name and description for ticket: {ticket_id_str}", append=True)
+    try:
+        ticket_response = search_ticket_by_id(ticket_id_str, log_debug=False)
+        
+        if ticket_response and ticket_response.get('resultCount', 0) > 0:
+            ticket_data = ticket_response['result'][0]
+            display_name = ticket_data.get('displayName')
+            description = ticket_data.get('description')
+            
+            write_debug(f"Ticket Display Name: {display_name}", append=True)
+            write_debug(f"Ticket Description: {description}", append=True)
 
+            if display_name:
+                display_name_embedding = get_text_embeddings(display_name)
+                write_debug(f"Display Name Embedding (first 5 elements): {display_name_embedding[:5]}...", append=True)
+            else:
+                write_debug("Warning: Display Name is missing, cannot generate embedding.", append=True)
+
+            if description:
+                description_embedding = get_text_embeddings(description)
+                write_debug(f"Description Embedding (first 5 elements): {description_embedding[:5]}...", append=True)
+            else:
+                write_debug("Warning: Description is missing, cannot generate embedding.", append=True)
+        else:
+            write_debug(f"Ticket {ticket_id_str} not found or no results returned by search_ticket_by_id.", append=True)
+            
+    except Exception as e:
+        write_debug(f"Error in get_ticket_display_and_description for {ticket_id_str}: {str(e)}", append=True)
+
+# # Example usage of the functions
+# # Loop through ticket numbers and log specific details
+# base_ticket_id = "ticket_number"
+# prefix = base_ticket_id[:2]
+# start_num = int(base_ticket_id[2:])
+# num_iterations = 100 # You can adjust the number of iterations
+
+# # write_debug(f"Starting loop to search for tickets from {base_ticket_id} downwards...", append=True)
+
+# for i in range(num_iterations):
+#     current_num = start_num - i
+#     current_ticket_id = f"{prefix}{current_num}"
+    
+#     # write_debug(f"Searching for ticket: {current_ticket_id}", append=True)
+    
+#     try:
+#         ticket_response = search_ticket_by_id(current_ticket_id, log_debug=False)
+        
+#         if ticket_response and ticket_response.get('resultCount', 0) > 0:
+#             ticket_data = ticket_response['result'][0]
+#             ticket_name = ticket_data.get('id')
+#             created_date = ticket_data.get('createdDate')
+            
+#             write_debug(f"Ticket Name: {ticket_name}", append=True)
+#             write_debug(f"Created Date: {created_date}", append=True)
+#         else:
+#             write_debug(f"Ticket {current_ticket_id} not found or no results.", append=True)
+            
+#     except Exception as e:
+#         write_debug(f"Error searching for ticket {current_ticket_id}: {str(e)}", append=True)
+
+# You can keep or remove the previous example usage for get_all_ticket_details and extract_ticket_data
+# raw_ticket_data = get_all_ticket_details("entity_id")
+# if raw_ticket_data:
+#     extracted_ticket_data = extract_ticket_data(raw_ticket_data)
+#     if extracted_ticket_data:
+#         write_debug("Extracted Ticket Data:", data=extracted_ticket_data, append=True)
+#         # Insert or update the extracted data into the database
+#         insert_or_update_athena_ticket(extracted_ticket_data, overwrite_existing=True)
+#     else:
+#         write_debug("Extraction of ticket data failed.", append=True)
+# else:
+#     write_debug("Failed to retrieve raw ticket data, skipping extraction and insertion.", append=True)
+
+# # Example usage of the new function
+# # Replace "ticket_number" with your desired starting ticket number
+# process_athena_tickets_in_range("")
+
+# write_debug(f"Simple ticket details:\n", data=search_ticket_by_id("IR9100238"))
+get_ticket_display_and_description("IR9100238")
