@@ -411,3 +411,53 @@ def add_onenote_chunk(chunk_title, chunk_text, chunk_index, notebook_name, secti
             cursor.close()
         if connection:
             connection.close()
+
+def search_athena_tickets_by_embedding(query_embedding, num_results, search_by_description=False):
+    """
+    Performs a vector similarity search on athena_tickets table using either
+    title_embedding or description_embedding.
+    
+    Args:
+        query_embedding (list): The embedding vector to search for.
+        num_results (int): The number of top similar tickets to return.
+        search_by_description (bool): If True, searches description_embedding.
+                                       Otherwise, searches title_embedding. Defaults to False.
+                                       
+    Returns:
+        list: A list of dictionaries, where each dictionary represents a retrieved ticket.
+    """
+    write_debug(f"Performing vector similarity search with query embedding (search by description: {search_by_description})", append=True)
+    connection = None
+    cursor = None
+    try:
+        connection = get_database_connection()
+        cursor = connection.cursor(cursor_factory=RealDictCursor) # To get results as dictionaries
+
+        # Determine which column to search
+        embedding_column = "description_embedding" if search_by_description else "title_embedding"
+        
+        # SQL query for vector similarity search
+        # We select all columns from athena_tickets and order by similarity
+        search_sql = f"""
+        SELECT *, 1 - ({embedding_column} <=> %s::vector) AS similarity
+        FROM athena_tickets
+        WHERE {embedding_column} IS NOT NULL
+        ORDER BY {embedding_column} <=> %s::vector
+        LIMIT %s;
+        """
+        
+        write_debug(f"Executing vector search on {embedding_column} with query embedding (first 5 elements): {query_embedding[:5]}...", append=True)
+        cursor.execute(search_sql, (query_embedding, query_embedding, num_results))
+        
+        results = cursor.fetchall()
+        write_debug(f"Retrieved {len(results)} records from athena_tickets.", append=True)
+        return results
+        
+    except Exception as e:
+        write_debug(f"Error performing vector similarity search on athena_tickets: {str(e)}", append=True)
+        return []
+    finally:
+        if cursor:
+            cursor.close()
+        if connection:
+            connection.close()

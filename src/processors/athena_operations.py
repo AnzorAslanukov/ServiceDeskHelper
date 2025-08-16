@@ -9,7 +9,7 @@ sys.path.append(os.path.join(os.path.dirname(__file__), '..', '..'))
 
 from src.config import ATHENA_CONFIG, write_debug
 from src.utility import get_text_embeddings
-from src.processors.database_operations import insert_or_update_athena_ticket
+from src.processors.database_operations import insert_or_update_athena_ticket, search_athena_tickets_by_embedding
 
 # Global variable to store the token and its expiration time
 _ATHENA_TOKEN = None
@@ -378,15 +378,20 @@ def process_athena_tickets_in_range(start_ticket_id):
     write_debug(f"Ticket numbers iterated through: {iterations_count}", append=True)
     write_debug(f"Records added/updated in athena_tickets table: {records_added_count}", append=True)
 
-def get_ticket_display_and_description(ticket_id_str):
+def find_similar_tickets(ticket_id_str, num_tickets_title=3, num_tickets_description=3, log_debug=True):
     """
     Retrieves display name and description for a given ticket ID
     and logs them to debug.txt.
     
     Args:
         ticket_id_str (str): The ID of the ticket (e.g., "IR1234567").
+        num_tickets_title (int, optional): Number of tickets to search by title. Defaults to 3.
+        num_tickets_description (int, optional): Number of tickets to search by description. Defaults to 3.
+        log_debug (bool, optional): If True, prints debug information to debug.txt. Defaults to True.
     """
-    write_debug(f"Attempting to retrieve display name and description for ticket: {ticket_id_str}", append=True)
+    if log_debug:
+        write_debug(f"Attempting to retrieve display name and description for ticket: {ticket_id_str}", append=True)
+    all_found_tickets = []
     try:
         ticket_response = search_ticket_by_id(ticket_id_str, log_debug=False)
         
@@ -395,73 +400,49 @@ def get_ticket_display_and_description(ticket_id_str):
             display_name = ticket_data.get('displayName')
             description = ticket_data.get('description')
             
-            write_debug(f"Ticket Display Name: {display_name}", append=True)
-            write_debug(f"Ticket Description: {description}", append=True)
+            if log_debug:
+                write_debug(f"Ticket Display Name: {display_name}", append=True)
+                write_debug(f"Ticket Description: {description}", append=True)
 
-            if display_name:
+            if display_name and num_tickets_title is not None:
                 display_name_embedding = get_text_embeddings(display_name)
-                write_debug(f"Display Name Embedding (first 5 elements): {display_name_embedding[:5]}...", append=True)
+                if log_debug:
+                    write_debug(f"Display Name Embedding (first 5 elements): {display_name_embedding[:5]}...", append=True)
+                if display_name_embedding:
+                    title_search_results = search_athena_tickets_by_embedding(
+                        display_name_embedding, num_tickets_title, search_by_description=False
+                    )
+                    for record in title_search_results:
+                        record['source'] = 'ticket_title_search'
+                        all_found_tickets.append(dict(record)) # Convert RealDictRow to dict
+                    if log_debug:
+                        write_debug(f"Found {len(title_search_results)} tickets by title search.", append=True)
             else:
-                write_debug("Warning: Display Name is missing, cannot generate embedding.", append=True)
+                if log_debug:
+                    write_debug("Warning: Display Name is missing or num_tickets_title is None, cannot perform title embedding search.", append=True)
 
-            if description:
+            if description and num_tickets_description is not None:
                 description_embedding = get_text_embeddings(description)
-                write_debug(f"Description Embedding (first 5 elements): {description_embedding[:5]}...", append=True)
+                if log_debug:
+                    write_debug(f"Description Embedding (first 5 elements): {description_embedding[:5]}...", append=True)
+                if description_embedding:
+                    description_search_results = search_athena_tickets_by_embedding(
+                        description_embedding, num_tickets_description, search_by_description=True
+                    )
+                    for record in description_search_results:
+                        record['source'] = 'ticket_description_search'
+                        all_found_tickets.append(dict(record)) # Convert RealDictRow to dict
+                    if log_debug:
+                        write_debug(f"Found {len(description_search_results)} tickets by description search.", append=True)
             else:
-                write_debug("Warning: Description is missing, cannot generate embedding.", append=True)
+                if log_debug:
+                    write_debug("Warning: Description is missing or num_tickets_description is None, cannot perform description embedding search.", append=True)
         else:
-            write_debug(f"Ticket {ticket_id_str} not found or no results returned by search_ticket_by_id.", append=True)
+            if log_debug:
+                write_debug(f"Ticket {ticket_id_str} not found or no results returned by search_ticket_by_id.", append=True)
             
     except Exception as e:
-        write_debug(f"Error in get_ticket_display_and_description for {ticket_id_str}: {str(e)}", append=True)
-
-# # Example usage of the functions
-# # Loop through ticket numbers and log specific details
-# base_ticket_id = "ticket_number"
-# prefix = base_ticket_id[:2]
-# start_num = int(base_ticket_id[2:])
-# num_iterations = 100 # You can adjust the number of iterations
-
-# # write_debug(f"Starting loop to search for tickets from {base_ticket_id} downwards...", append=True)
-
-# for i in range(num_iterations):
-#     current_num = start_num - i
-#     current_ticket_id = f"{prefix}{current_num}"
+        if log_debug:
+            write_debug(f"Error in get_ticket_display_and_description for {ticket_id_str}: {str(e)}", append=True)
     
-#     # write_debug(f"Searching for ticket: {current_ticket_id}", append=True)
-    
-#     try:
-#         ticket_response = search_ticket_by_id(current_ticket_id, log_debug=False)
-        
-#         if ticket_response and ticket_response.get('resultCount', 0) > 0:
-#             ticket_data = ticket_response['result'][0]
-#             ticket_name = ticket_data.get('id')
-#             created_date = ticket_data.get('createdDate')
-            
-#             write_debug(f"Ticket Name: {ticket_name}", append=True)
-#             write_debug(f"Created Date: {created_date}", append=True)
-#         else:
-#             write_debug(f"Ticket {current_ticket_id} not found or no results.", append=True)
-            
-#     except Exception as e:
-#         write_debug(f"Error searching for ticket {current_ticket_id}: {str(e)}", append=True)
-
-# You can keep or remove the previous example usage for get_all_ticket_details and extract_ticket_data
-# raw_ticket_data = get_all_ticket_details("entity_id")
-# if raw_ticket_data:
-#     extracted_ticket_data = extract_ticket_data(raw_ticket_data)
-#     if extracted_ticket_data:
-#         write_debug("Extracted Ticket Data:", data=extracted_ticket_data, append=True)
-#         # Insert or update the extracted data into the database
-#         insert_or_update_athena_ticket(extracted_ticket_data, overwrite_existing=True)
-#     else:
-#         write_debug("Extraction of ticket data failed.", append=True)
-# else:
-#     write_debug("Failed to retrieve raw ticket data, skipping extraction and insertion.", append=True)
-
-# # Example usage of the new function
-# # Replace "ticket_number" with your desired starting ticket number
-# process_athena_tickets_in_range("")
-
-# write_debug(f"Simple ticket details:\n", data=search_ticket_by_id("IR9100238"))
-get_ticket_display_and_description("IR9100238")
+    return all_found_tickets
