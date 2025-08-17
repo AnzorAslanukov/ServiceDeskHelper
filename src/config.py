@@ -56,6 +56,40 @@ ATHENA_CONFIG = {
     'json_template': os.getenv('ATHENA_JSON_TEMPLATE')
 }
 
+# PostgreSQL database athena_tickets column key to API JSON key mapping
+# Key1 = column name from table athena_tickets 
+# Key2 = JSON response object key
+ATHENA_TICKETS_FIELD_MAPPING = {
+    "entity_id":"entityId",
+    "ticket_id":"id",
+    "title":"title",
+    "description":"description",
+    "escalated":"escalated",
+    "resolution_description":"",
+    "message":"resolutionDescription",
+    "priority":"priority",
+    "location_name":"location.name",
+    "floor_name":"floor.name",
+    "affect_patient_care":"affect_Patient_Care",
+    "confirmed_resolution":"confrimed_Resolution.name",
+    "tier_queue_name":"tierQueue.name",
+    "created_date":"createdDate",
+    "last_modified":"lastModified",
+    "affected_user_domain":"affectedUser.domain",
+    "affected_user_company":"affectedUser.company",
+    "affected_user_department":"affectedUser.department",
+    "affected_user_title":"affectedUser.title",
+    "assigned_to_user_domain":"assignedToUser.domain",
+    "assigned_to_user_company":"assignedToUser.company",
+    "assigned_to_user_department":"assignedToUser.department",
+    "assigned_to_user_title":"assignedToUser.title",
+    "resolved_by_user_domain":"resolvedByUser.domain",
+    "resolved_by_user_company":"resolvedByUser.company",
+    "resolved_by_user_department":"resolvedByUser.department",
+    "resolved_by_user_title":"resolvedByUser.title",
+    "analyst_comments":"analystComments"
+}
+
 # Validation
 def validate_config():
     """Validate that required environment variables are set and test Databricks endpoints"""

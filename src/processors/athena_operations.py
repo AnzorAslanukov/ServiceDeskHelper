@@ -384,7 +384,7 @@ def find_similar_tickets(ticket_id_str, num_tickets_title=3, num_tickets_descrip
     and logs them to debug.txt.
     
     Args:
-        ticket_id_str (str): The ID of the ticket (e.g., "IR1234567").
+        ticket_id_str (str): The ID of the ticket (e.g., "ticket_number").
         num_tickets_title (int, optional): Number of tickets to search by title. Defaults to 3.
         num_tickets_description (int, optional): Number of tickets to search by description. Defaults to 3.
         log_debug (bool, optional): If True, prints debug information to debug.txt. Defaults to True.
@@ -403,6 +403,14 @@ def find_similar_tickets(ticket_id_str, num_tickets_title=3, num_tickets_descrip
             if log_debug:
                 write_debug(f"Ticket Display Name: {display_name}", append=True)
                 write_debug(f"Ticket Description: {description}", append=True)
+
+            # Add original ticket data to the results
+            original_ticket_record = dict(ticket_data) # Convert to dict
+            original_ticket_record['source'] = 'original_query_ticket'
+            # Normalize entityId to entity_id for consistency in duplicate checking
+            if 'entityId' in original_ticket_record:
+                original_ticket_record['entity_id'] = original_ticket_record.pop('entityId')
+            all_found_tickets.append(original_ticket_record)
 
             if display_name and num_tickets_title is not None:
                 display_name_embedding = get_text_embeddings(display_name)
@@ -443,6 +451,47 @@ def find_similar_tickets(ticket_id_str, num_tickets_title=3, num_tickets_descrip
             
     except Exception as e:
         if log_debug:
-            write_debug(f"Error in get_ticket_display_and_description for {ticket_id_str}: {str(e)}", append=True)
+            write_debug(f"Error in find_similar_tickets for {ticket_id_str}: {str(e)}", append=True)
     
-    return all_found_tickets
+    # Process for duplicates and prioritize original ticket
+    unique_found_tickets = []
+    seen_entity_ids = set()
+
+    write_debug(f"All found tickets:\n{all_found_tickets}", append=True)
+    
+    # First, add the original query ticket if it exists
+    original_ticket_record = None
+    for record in all_found_tickets:
+        if record.get('source') == 'original_query_ticket':
+            original_ticket_record = record
+            break
+    
+    if original_ticket_record:
+        unique_found_tickets.append(original_ticket_record)
+        seen_entity_ids.add(original_ticket_record.get('entity_id'))
+        if log_debug:
+            write_debug(f"Prioritizing original query ticket: {original_ticket_record.get('entity_id')}", append=True)
+
+    # Then, add other tickets, skipping duplicates or replacing if original was added later
+    for record in all_found_tickets:
+        entity_id = record.get('entity_id')
+        if entity_id and entity_id not in seen_entity_ids:
+            unique_found_tickets.append(record)
+            seen_entity_ids.add(entity_id)
+        elif entity_id and record.get('source') == 'original_query_ticket' and record not in unique_found_tickets:
+            # This case handles if original_ticket_record was not found in the first pass
+            # and a duplicate was added from search results. Replace the duplicate with original.
+            # This part is mostly defensive programming if original_ticket_record was not found first.
+            for i, existing_record in enumerate(unique_found_tickets):
+                if existing_record.get('entity_id') == entity_id:
+                    unique_found_tickets[i] = record # Replace with the original
+                    if log_debug:
+                        write_debug(f"Replaced duplicate with original ticket: {entity_id}", append=True)
+                    break
+    
+    # Remove embedding fields before returning
+    for record in unique_found_tickets:
+        record.pop('title_embedding', None)
+        record.pop('description_embedding', None)
+    
+    return unique_found_tickets
