@@ -217,7 +217,29 @@ def write_debug(message, data=None, append=False):
                 
                 # Handle different data types
                 if isinstance(data, (dict, list)):
-                    f.write(json.dumps(data, indent=2, ensure_ascii=False))
+                    try:
+                        f.write(json.dumps(data, indent=2, ensure_ascii=False))
+                    except TypeError:
+                        # Fallback if json.dumps fails for some reason (e.g., non-serializable custom objects within dict/list)
+                        f.write("Non-JSON serializable object encountered. Attempting vertical print:\n")
+                        if isinstance(data, dict):
+                            for k, v in data.items():
+                                f.write(f"  {k}: {v}\n")
+                        elif isinstance(data, list):
+                            for item in data:
+                                f.write(f"  - {item}\n")
+                        else:
+                            f.write(str(data)) # Fallback to string if still problematic
+                elif hasattr(data, '__iter__') and not isinstance(data, str):
+                    # Handle other iterables (e.g., query results, custom collections)
+                    f.write("Iterating through data:\n")
+                    for i, item in enumerate(data):
+                        if isinstance(item, dict):
+                            f.write(f"  Item {i}:\n")
+                            for k, v in item.items():
+                                f.write(f"    {k}: {v}\n")
+                        else:
+                            f.write(f"  - {item}\n")
                 else:
                     f.write(str(data))
                 

@@ -221,7 +221,7 @@ def process_onenote_data():
     
     write_debug("Finished OneNote data processing.", append=True)
 
-def hybrid_search_onenote(query_string, num_records=3, table_name="onenote_chunks", column_names=["chunk_title", "chunk_text", "notebook_name", "section_name"], keywords=None):
+def hybrid_search_onenote(query_string, num_records=3, table_name="onenote_chunks", column_names=["chunk_title", "chunk_text", "notebook_name", "section_name"], keywords=None, log_debug=True):
     """
     Performs a hybrid search combining vector similarity and keyword matching.
     
@@ -231,14 +231,17 @@ def hybrid_search_onenote(query_string, num_records=3, table_name="onenote_chunk
         table_name (str): The name of the table to search in (default "onenote_chunks").
         column_names (list): List of column names to retrieve from the table.
         keywords (str, optional): Keywords for full-text search. Defaults to None.
+        log_debug (bool, optional): If True, prints debug information to debug.txt. Defaults to True.
         
     Returns:
         dict: A JSON object with search results.
     """
-    write_debug(f"Starting hybrid search for query: '{query_string}' in table '{table_name}' with keywords: '{keywords}'", append=False)
+    if log_debug:
+        write_debug(f"Starting hybrid search for query: '{query_string}' in table '{table_name}' with keywords: '{keywords}'", append=False)
     
     if not 1 <= num_records <= 10:
-        write_debug(f"Error: num_records must be between 1 and 10. Received: {num_records}", append=True)
+        if log_debug:
+            write_debug(f"Error: num_records must be between 1 and 10. Received: {num_records}", append=True)
         return {
             "error": "num_records must be between 1 and 10",
             "num_records_chosen": num_records
@@ -246,7 +249,8 @@ def hybrid_search_onenote(query_string, num_records=3, table_name="onenote_chunk
 
     # 1. Check for table and column existence
     if not check_table_and_columns_exist(table_name, column_names + ["embedding"]): # Ensure embedding column exists
-        write_debug(f"Hybrid search cancelled due to missing table or columns in table '{table_name}'.", append=True)
+        if log_debug:
+            write_debug(f"Hybrid search cancelled due to missing table or columns in table '{table_name}'.", append=True)
         return {
             "error": "Table or specified columns do not exist",
             "table_name": table_name,
@@ -259,7 +263,8 @@ def hybrid_search_onenote(query_string, num_records=3, table_name="onenote_chunk
         # 2. Generate embedding for the query string
         query_embedding = get_text_embeddings(query_string)
         if query_embedding is None:
-            write_debug(f"Error: Could not generate embedding for query string: '{query_string}'", append=True)
+            if log_debug:
+                write_debug(f"Error: Could not generate embedding for query string: '{query_string}'", append=True)
             return {
                 "error": "Could not generate embedding for query string",
                 "query_string": query_string
@@ -281,7 +286,8 @@ def hybrid_search_onenote(query_string, num_records=3, table_name="onenote_chunk
             else:
                 record['chunk_word_count'] = 0 # Or handle as appropriate if chunk_text is missing/None
 
-        write_debug(f"Hybrid search completed in {time_taken:.2f} seconds. Retrieved {len(retrieved_records)} records.", append=True)
+        if log_debug:
+            write_debug(f"Hybrid search completed in {time_taken:.2f} seconds. Retrieved {len(retrieved_records)} records.", append=True)
 
         # 4. Return JSON object
         return {
@@ -292,9 +298,11 @@ def hybrid_search_onenote(query_string, num_records=3, table_name="onenote_chunk
         }
 
     except Exception as e:
-        write_debug(f"An unexpected error occurred during hybrid search: {str(e)}", append=True)
+        if log_debug:
+            write_debug(f"An unexpected error occurred during hybrid search: {str(e)}", append=True)
         return {
             "error": f"An unexpected error occurred: {str(e)}",
             "query_string": query_string,
             "table_name": table_name
         }
+

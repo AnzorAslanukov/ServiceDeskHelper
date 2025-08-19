@@ -8,8 +8,9 @@ from datetime import datetime, timedelta
 sys.path.append(os.path.join(os.path.dirname(__file__), '..', '..'))
 
 from src.config import ATHENA_CONFIG, write_debug
-from src.utility import get_text_embeddings
+from src.utility import get_text_embeddings, generate_question_from_ticket_data, get_nested_value, get_ticket_assignment_recommendation
 from src.processors.database_operations import insert_or_update_athena_ticket, search_athena_tickets_by_embedding
+from src.processors.onenote_operations import hybrid_search_onenote
 
 # Global variable to store the token and its expiration time
 _ATHENA_TOKEN = None
@@ -188,18 +189,6 @@ def extract_ticket_data(raw_ticket_data):
     if not raw_ticket_data:
         write_debug("No raw ticket data provided for extraction.", append=True)
         return None
-
-    # Helper to safely get nested values
-    def get_nested_value(data, keys, default=None):
-        if not isinstance(data, dict):
-            return default
-        current = data
-        for key in keys:
-            if isinstance(current, dict) and key in current:
-                current = current[key]
-            else:
-                return default
-        return current
 
     # Helper to convert date strings to ISO format or None
     def to_iso_datetime(date_str):
@@ -456,8 +445,6 @@ def find_similar_tickets(ticket_id_str, num_tickets_title=3, num_tickets_descrip
     # Process for duplicates and prioritize original ticket
     unique_found_tickets = []
     seen_entity_ids = set()
-
-    write_debug(f"All found tickets:\n{all_found_tickets}", append=True)
     
     # First, add the original query ticket if it exists
     original_ticket_record = None
@@ -495,3 +482,69 @@ def find_similar_tickets(ticket_id_str, num_tickets_title=3, num_tickets_descrip
         record.pop('description_embedding', None)
     
     return unique_found_tickets
+
+def athena_ticket_advisor(ticket_number, log_debug=True):
+    """
+    Provides advice related to an Athena ticket.
+    
+    Args:
+        ticket_number (str): The ID of the ticket (e.g., "IR1234567").
+        log_debug (bool, optional): If True, prints debug information to debug.txt. Defaults to True.
+    """
+    if log_debug:
+        write_debug(f"Athena Ticket Advisor initiated for ticket: {ticket_number}", append=True)
+    
+    all_tickets_payload = find_similar_tickets(ticket_number, log_debug=log_debug)
+    
+    original_ticket = None
+    similar_tickets = []
+    
+    for ticket in all_tickets_payload:
+        if ticket.get('source') == 'original_query_ticket':
+            original_ticket = ticket
+        else:
+            similar_tickets.append(ticket)
+            
+    if log_debug:
+        write_debug(f"Original Ticket: {original_ticket.get('ticket_id') if original_ticket else 'N/A'}", append=True)
+        write_debug(f"Number of Similar Tickets found: {len(similar_tickets)}", append=True)
+    
+    generated_question_full_response = None
+    generated_question_text = None
+    if original_ticket:
+        generated_question_full_response = generate_question_from_ticket_data(original_ticket, log_debug=log_debug)
+        if log_debug:
+            write_debug(f"Generated Question (full response): {generated_question_full_response}", append=True)
+        
+        # Extract the actual question text from the full LLM response
+        if isinstance(generated_question_full_response, dict) and 'choices' in generated_question_full_response:
+            generated_question_text = generated_question_full_response.get('choices', [{}])[0].get('message', {}).get('content', None)
+            if generated_question_text:
+                generated_question_text = generated_question_text.strip().strip('"').replace('\\n', '\n')
+                if log_debug:
+                    write_debug(f"Extracted generated question text: {generated_question_text}", append=True)
+        
+    onenote_chunks = None
+    if generated_question_text: # Use the extracted text for the search
+        onenote_chunks = hybrid_search_onenote(generated_question_text, num_records=3, log_debug=log_debug)
+        if log_debug:
+            write_debug(f"OneNote Chunks: {onenote_chunks}", append=True)
+
+    # Get ticket assignment recommendation
+    ticket_assignment_recommendation = get_ticket_assignment_recommendation(
+        original_ticket,
+        similar_tickets,
+        generated_question_full_response,
+        onenote_chunks,
+        log_debug=log_debug
+    )
+    if log_debug:
+        write_debug(f"Ticket Assignment Recommendation: {ticket_assignment_recommendation}", append=True)
+
+    return ticket_assignment_recommendation
+
+# IR9850334
+ticket_assignment_recommendation = athena_ticket_advisor("IR9898203") 
+write_debug("Final Ticket Assignment Recommendation from example call:\n", data=ticket_assignment_recommendation, append=True) 
+
+# write_debug("", data=search_ticket_by_id("IR9897785", log_debug=False))
