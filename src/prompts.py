@@ -137,6 +137,9 @@ Consider:
 - Support groups that handled similar tickets successfully
 - Specialized expertise required
 - Current ticket's specific requirements
+- Support groups used in similar tickets
+- If already assigned to a support group, double-check to make sure it is correct one
+- If set to support group 'Validation', this means ticket needs to be assigned to another group
 
 STEP 5: ASSESS PRIORITY LEVEL
 Apply these criteria:

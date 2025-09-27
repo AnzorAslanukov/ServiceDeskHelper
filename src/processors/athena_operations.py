@@ -77,19 +77,29 @@ def _get_athena_token():
 def search_ticket_by_id(ticket_id, log_debug=True):
     """
     Retrieves ticket details from Athena using a ticket ID and a JSON template.
-    
+
     Args:
         ticket_id (str): The ID of the ticket (e.g., "IR1234567").
         log_debug (bool): If True, prints debug information to debug.txt. Defaults to True.
-    
+
     Returns:
         dict: The response JSON containing ticket data, or None if failed.
     """
     try:
         token = _get_athena_token()
-        
-        url = f"{ATHENA_CONFIG['base_url']}view/workitem?type=incident"
+
+        # Determine workitem type based on ticket ID prefix
+        prefix = ticket_id[:2].upper()
+        if prefix == 'IR':
+            workitem_type = 'incident'
+        elif prefix == 'SR':
+            workitem_type = 'servicerequest'
+        else:
+            workitem_type = 'incident'  # Default to incident for unknown prefixes
+
+        url = f"{ATHENA_CONFIG['base_url']}view/workitem?type={workitem_type}"
         if log_debug:
+            write_debug(f"Workitem type: {workitem_type}", append=True)
             write_debug(f"URL:\n{url}", append=True)
         
         headers = {
@@ -544,7 +554,8 @@ def athena_ticket_advisor(ticket_number, log_debug=True):
     return ticket_assignment_recommendation
 
 # IR9850334
-ticket_assignment_recommendation = athena_ticket_advisor("IR9898203") 
-write_debug("Final Ticket Assignment Recommendation from example call:\n", data=ticket_assignment_recommendation, append=True) 
+# ticket_assignment_recommendation = athena_ticket_advisor("SR9980183") 
+# write_debug("Final Ticket Assignment Recommendation from example call:\n", data=ticket_assignment_recommendation, append=True)
 
-# write_debug("", data=search_ticket_by_id("IR9897785", log_debug=False))
+# write_debug("", data=search_ticket_by_id("SR9980183", log_debug=False)) 
+# write_debug("Similar tickets:\n", data=find_similar_tickets("SR9980183", log_debug=False), append=True) 
