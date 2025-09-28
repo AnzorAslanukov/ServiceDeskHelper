@@ -711,4 +711,4 @@ def athena_ticket_judgment(ticket_number, log_debug=True):
 
 # write_debug("", data=search_ticket_by_id("ir9980245", log_debug=False))
 # write_debug("Similar tickets:\n", data=find_similar_tickets("SR9980183", log_debug=False), append=True)
-write_debug("Similar tickets:\n", data=athena_ticket_judgment("IR9957502", log_debug=False), append=True) 
+# write_debug("Similar tickets:\n", data=athena_ticket_judgment("IR9957502", log_debug=False), append=True) 

@@ -6,7 +6,7 @@ document.addEventListener('DOMContentLoaded', function() {
     const resultsDiv = document.getElementById('results');
     const loadingOverlay = document.getElementById('loading-overlay');
     const timerDiv = document.getElementById('timer');
-    const modeToggle = document.getElementById('mode-toggle');
+    const modeRadios = document.querySelectorAll('input[name="mode"]');
 
     let currentMode = 'ticket-routing'; // Default mode
 
@@ -33,10 +33,12 @@ document.addEventListener('DOMContentLoaded', function() {
         }
     }
 
-    modeToggle.addEventListener('change', function() {
-        currentMode = this.checked ? 'find-similar' : 'ticket-routing';
-        console.log('Mode changed to:', currentMode);
-        // TODO: Implement mode-specific functionality
+    modeRadios.forEach(radio => {
+        radio.addEventListener('change', function() {
+            currentMode = this.value;
+            console.log('Mode changed to:', currentMode);
+            // TODO: Implement mode-specific functionality
+        });
     });
 
     searchInput.addEventListener('input', updateValidation);

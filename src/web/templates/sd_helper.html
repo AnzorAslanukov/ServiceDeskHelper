@@ -11,13 +11,14 @@
         <header>
             <h1>Service Desk Helper</h1>
             <div class="toggle-section">
-                <label class="toggle">
-                    <input type="checkbox" id="mode-toggle">
-                    <span class="slider">
-                        <span class="option option-1">Ticket Routing Recommendation</span>
-                        <span class="option option-2">Find Similar Tickets</span>
-                    </span>
-                </label>
+                <input type="radio" id="mode-routing" name="mode" value="ticket-routing" checked>
+                <input type="radio" id="mode-similar" name="mode" value="find-similar">
+                <input type="radio" id="mode-judge" name="mode" value="judge-ticket">
+                <span class="slider">
+                    <span class="option option-1" onclick="document.getElementById('mode-routing').click();">Ticket Routing Recommendation</span>
+                    <span class="option option-2" onclick="document.getElementById('mode-similar').click();">Find Similar Tickets</span>
+                    <span class="option option-3" onclick="document.getElementById('mode-judge').click();">Judge Ticket</span>
+                </span>
             </div>
         </header>
         <main>

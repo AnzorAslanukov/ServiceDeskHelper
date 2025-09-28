@@ -25,55 +25,19 @@ h1 {
     justify-content: center;
 }
 
-.toggle {
-    position: relative;
-    display: inline-block;
-    width: 400px;
-    height: 50px;
-}
-
-.toggle input {
-    opacity: 0;
-    width: 0;
-    height: 0;
+input[type="radio"] {
+    display: none;
 }
 
 .slider {
-    position: absolute;
-    cursor: pointer;
-    top: 0;
-    left: 0;
-    right: 0;
-    bottom: 0;
-    background-color: #007bff;
-    transition: 0.4s;
-    border-radius: 50px;
+    position: relative;
+    display: inline-block;
+    width: 600px;
+    height: 50px;
     display: flex;
     align-items: center;
-    justify-content: space-between;
+    gap: 10px;
     padding: 0 10px;
-}
-
-.slider:before {
-    position: absolute;
-    content: "";
-    height: 40px;
-    width: 190px;
-    left: 5px;
-    bottom: 5px;
-    background-color: #4da3ff; /* Lighter blue for default */
-    transition: 0.4s;
-    border-radius: 45px;
-    z-index: 1;
-}
-
-input:checked + .slider {
-    background-color: #ff6b35;
-}
-
-input:checked + .slider:before {
-    transform: translateX(190px);
-    background-color: #ff9f7a; /* Lighter orange when checked */
 }
 
 .option {
@@ -83,14 +47,37 @@ input:checked + .slider:before {
     position: relative;
     flex: 1;
     text-align: center;
+    padding: 10px;
+    border-radius: 25px;
+    cursor: pointer;
+    transition: 0.4s;
 }
 
 .option-1 {
-    margin-right: 10px;
+    background-color: #4da3ff; /* light blue */
 }
 
 .option-2 {
-    margin-left: 10px;
+    background-color: #ff9f7a; /* light orange */
+}
+
+.option-3 {
+    background-color: #dda0dd; /* light purple */
+}
+
+#mode-routing:checked ~ .slider .option-1 {
+    background-color: #007bff; /* full blue */
+    border: 3px solid #28a745; /* green border */
+}
+
+#mode-similar:checked ~ .slider .option-2 {
+    background-color: #ff6b35; /* full orange */
+    border: 3px solid #28a745; /* green border */
+}
+
+#mode-judge:checked ~ .slider .option-3 {
+    background-color: #800080; /* full purple */
+    border: 3px solid #28a745; /* green border */
 }
 
 .search-section {
