@@ -1,0 +1,42 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SD Helper</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/sd_helper.css') }}">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>Service Desk Helper</h1>
+            <div class="toggle-section">
+                <label class="toggle">
+                    <input type="checkbox" id="mode-toggle">
+                    <span class="slider">
+                        <span class="option option-left">Ticket Routing Recommendation</span>
+                        <span class="option option-right">Find Similar Tickets</span>
+                    </span>
+                </label>
+            </div>
+        </header>
+        <main>
+            <div class="search-section">
+                <form class="search-form">
+                    <input type="text" id="search-input" placeholder="Search..." />
+                    <button type="submit" id="search-button" disabled>Search</button>
+                </form>
+                <div id="warning-message" class="warning" style="display: none;">Invalid input format. Please use IR or SR followed by 7 digits (e.g., IR1234567).</div>
+            </div>
+            <div id="results" class="results" style="display: none;"></div>
+        </main>
+    </div>
+    <div id="loading-overlay" class="loading-overlay" style="display: none;">
+        <div class="loading-content">
+            <h2>Loading...</h2>
+            <div id="timer">0 seconds</div>
+        </div>
+    </div>
+    <script src="{{ url_for('static', filename='js/sd_helper.js') }}"></script>
+</body>
+</html>

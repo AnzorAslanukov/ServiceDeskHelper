@@ -554,8 +554,8 @@ def athena_ticket_advisor(ticket_number, log_debug=True):
     return ticket_assignment_recommendation
 
 # IR9850334
-# ticket_assignment_recommendation = athena_ticket_advisor("SR9980183") 
+# ticket_assignment_recommendation = athena_ticket_advisor("ir9980245") 
 # write_debug("Final Ticket Assignment Recommendation from example call:\n", data=ticket_assignment_recommendation, append=True)
 
-# write_debug("", data=search_ticket_by_id("SR9980183", log_debug=False)) 
+# write_debug("", data=search_ticket_by_id("ir9980245", log_debug=False)) 
 # write_debug("Similar tickets:\n", data=find_similar_tickets("SR9980183", log_debug=False), append=True) 
