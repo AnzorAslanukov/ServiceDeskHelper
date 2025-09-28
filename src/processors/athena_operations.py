@@ -11,6 +11,7 @@ from src.config import ATHENA_CONFIG, write_debug
 from src.utility import get_text_embeddings, generate_question_from_ticket_data, get_nested_value, get_ticket_assignment_recommendation
 from src.processors.database_operations import insert_or_update_athena_ticket, search_athena_tickets_by_embedding
 from src.processors.onenote_operations import hybrid_search_onenote
+from src.prompts import TICKET_JUDGMENT_PROMPT
 
 # Global variable to store the token and its expiration time
 _ATHENA_TOKEN = None
@@ -553,9 +554,161 @@ def athena_ticket_advisor(ticket_number, log_debug=True):
 
     return ticket_assignment_recommendation
 
+def athena_ticket_judgment(ticket_number, log_debug=True):
+    """
+    Judges the quality and completeness of an Athena ticket by analyzing its content,
+    identifying missing information, and providing recommendations based on similar
+    historical tickets and documentation.
+
+    Args:
+        ticket_number (str): The ID of the ticket (e.g., "IR1234567").
+        log_debug (bool): If True, prints debug information to debug.txt. Defaults to True.
+
+    Returns:
+        dict: JSON object containing judgment analysis with missing information,
+              inconsistencies, recommendations, and quality assessment.
+    """
+    if log_debug:
+        write_debug(f"Athena Ticket Judgment initiated for ticket: {ticket_number}", append=True)
+
+    try:
+        # 1. Get original ticket data
+        ticket_response = search_ticket_by_id(ticket_number, log_debug=log_debug)
+        if not ticket_response or ticket_response.get('resultCount', 0) == 0:
+            if log_debug:
+                write_debug(f"No ticket found for {ticket_number}", append=True)
+            return {"error": f"No ticket found for {ticket_number}"}
+
+        entity_id = ticket_response['result'][0].get('entityId')
+        if not entity_id:
+            if log_debug:
+                write_debug(f"No entity ID found for ticket {ticket_number}", append=True)
+            return {"error": f"No entity ID found for ticket {ticket_number}"}
+
+        raw_ticket_data = get_all_ticket_details(entity_id)
+        if not raw_ticket_data:
+            if log_debug:
+                write_debug(f"Failed to get full ticket details for {ticket_number}", append=True)
+            return {"error": f"Failed to get full ticket details for {ticket_number}"}
+
+        original_ticket = extract_ticket_data(raw_ticket_data)
+        if not original_ticket:
+            if log_debug:
+                write_debug(f"Failed to extract ticket data for {ticket_number}", append=True)
+            return {"error": f"Failed to extract ticket data for {ticket_number}"}
+
+        if log_debug:
+            write_debug(f"Retrieved original ticket data for {ticket_number}", append=True)
+
+        # 2. Find similar tickets
+        all_tickets_payload = find_similar_tickets(ticket_number, log_debug=log_debug)
+        similar_tickets = [ticket for ticket in all_tickets_payload if ticket.get('source') != 'original_query_ticket']
+
+        if log_debug:
+            write_debug(f"Found {len(similar_tickets)} similar tickets", append=True)
+
+        # 3. Search OneNote for relevant documentation
+        generated_question_response = generate_question_from_ticket_data(original_ticket, log_debug=log_debug)
+        if isinstance(generated_question_response, dict) and 'error' in generated_question_response:
+            if log_debug:
+                write_debug(f"Failed to generate question: {generated_question_response['error']}", append=True)
+            return generated_question_response
+
+        # Extract question text
+        generated_question_text = None
+        if isinstance(generated_question_response, dict) and 'choices' in generated_question_response:
+            generated_question_text = generated_question_response.get('choices', [{}])[0].get('message', {}).get('content', None)
+            if generated_question_text:
+                generated_question_text = generated_question_text.strip().strip('"').replace('\\n', '\n')
+
+        onenote_chunks = None
+        if generated_question_text:
+            onenote_chunks = hybrid_search_onenote(generated_question_text, num_records=3, log_debug=log_debug)
+            if log_debug:
+                write_debug(f"Retrieved OneNote chunks: {onenote_chunks}", append=True)
+        else:
+            if log_debug:
+                write_debug("No question text generated for OneNote search", append=True)
+
+        # 4. Prepare context for LLM
+        from src.utility import _to_json_string_or_iterate
+
+        original_ticket_str = _to_json_string_or_iterate(original_ticket)
+        similar_tickets_str = _to_json_string_or_iterate(similar_tickets)
+        onenote_chunks_str = _to_json_string_or_iterate(onenote_chunks)
+
+        formatted_prompt = TICKET_JUDGMENT_PROMPT.format(
+            original_ticket=original_ticket_str,
+            onenote_chunks=onenote_chunks_str,
+            similar_tickets=similar_tickets_str
+        )
+
+        # 5. Call LLM with TICKET_JUDGMENT_PROMPT
+        from src.config import DATABRICKS_CONFIG
+        import requests
+
+        text_generation_url = DATABRICKS_CONFIG['text_generation_url']
+        api_key = DATABRICKS_CONFIG['api_key']
+
+        headers = {
+            'Authorization': f'Bearer {api_key}',
+            'Content-Type': 'application/json'
+        }
+
+        payload = {
+            "messages": [
+                {
+                    "role": "user",
+                    "content": formatted_prompt
+                }
+            ],
+            "max_tokens": 1500  # Allow more tokens for detailed judgment response
+        }
+
+        if log_debug:
+            write_debug(f"Sending judgment request to LLM for ticket {ticket_number}", append=True)
+
+        response = requests.post(
+            text_generation_url,
+            headers=headers,
+            json=payload,
+            timeout=120
+        )
+        response.raise_for_status()
+
+        llm_response = response.json()
+
+        # 6. Parse and return JSON response
+        response_content = llm_response.get('choices', [{}])[0].get('message', {}).get('content', None)
+
+        if response_content:
+            # Remove markdown code block delimiters if present
+            if response_content.startswith("```json") and response_content.endswith("```"):
+                response_content = response_content[len("```json"): -len("```")].strip()
+
+            try:
+                parsed_json = json.loads(response_content)
+                if log_debug:
+                    write_debug(f"Successfully parsed judgment JSON response for ticket {ticket_number}", parsed_json, append=True)
+                return parsed_json
+            except json.JSONDecodeError as e:
+                if log_debug:
+                    write_debug(f"Failed to parse LLM response as JSON: {e}", response_content, append=True)
+                return {"error": f"Failed to parse LLM response as JSON: {e}"}
+        else:
+            if log_debug:
+                write_debug("LLM response content is empty", llm_response, append=True)
+            return {"error": "LLM response content is empty"}
+
+    except Exception as e:
+        if log_debug:
+            write_debug(f"Error in athena_ticket_judgment for {ticket_number}: {str(e)}", append=True)
+        return {"error": f"Error in athena_ticket_judgment: {str(e)}"}
+
 # IR9850334
 # ticket_assignment_recommendation = athena_ticket_advisor("ir9980245") 
 # write_debug("Final Ticket Assignment Recommendation from example call:\n", data=ticket_assignment_recommendation, append=True)
 
-# write_debug("", data=search_ticket_by_id("ir9980245", log_debug=False)) 
-# write_debug("Similar tickets:\n", data=find_similar_tickets("SR9980183", log_debug=False), append=True) 
+# write_debug("", data=search_ticket_by_id("ir9980245", log_debug=False))
+# write_debug("Similar tickets:\n", data=find_similar_tickets("SR9980183", log_debug=False), append=True)
+write_debug("Similar tickets:\n", data=athena_ticket_judgment("IR9957502", log_debug=False), append=True) 

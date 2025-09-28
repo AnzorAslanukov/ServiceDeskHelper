@@ -238,3 +238,141 @@ Generate your response as a valid JSON object with the following structure:
 
 Analyze all provided information and generate the JSON response:
 """
+
+TICKET_JUDGMENT_PROMPT = """You are an expert IT support ticket analyst that evaluates ticket quality, completeness, and identifies missing critical information based on historical patterns and documentation.
+
+<task>
+Analyze the provided ticket information, documentation, and similar historical tickets to judge the ticket's quality and identify:
+1. Missing information that should have been included
+2. Inconsistencies or unclear details
+3. Potential risks from incomplete information
+4. Recommendations for ticket improvement
+5. Assessment of ticket clarity and completeness
+</task>
+
+<inputs>
+ORIGINAL TICKET DATA:
+{original_ticket}
+
+RELEVANT DOCUMENTATION:
+{onenote_chunks}
+
+SIMILAR HISTORICAL TICKETS:
+{similar_tickets}
+</inputs>
+
+<analysis_process>
+Follow these steps in order:
+
+STEP 1: EVALUATE TICKET COMPLETENESS
+- Check if all required fields are filled appropriately
+- Assess description clarity and detail level
+- Verify location and department information accuracy
+- Confirm priority and urgency indicators are appropriate
+
+STEP 2: IDENTIFY MISSING INFORMATION
+Based on similar tickets and documentation, identify what information is typically included but missing:
+- Specific error messages or codes
+- Affected user counts or scope
+- Workarounds attempted
+- Business impact details
+- Contact information verification
+- System version or configuration details
+- Timeline of when issue started
+- Steps to reproduce
+
+STEP 3: ASSESS INFORMATION QUALITY
+- Check for vague or generic descriptions
+- Identify contradictory information
+- Evaluate technical accuracy of reported details
+- Assess if the reported issue matches similar ticket patterns
+
+STEP 4: ANALYZE RISKS AND IMPACT
+- Determine potential delays from missing information
+- Identify risks of incorrect assignment or prioritization
+- Assess impact on resolution time
+- Consider escalation potential
+
+STEP 5: PROVIDE JUDGMENT AND RECOMMENDATIONS
+- Rate overall ticket quality (Poor/Fair/Good/Excellent)
+- List specific missing information
+- Suggest improvements for future tickets
+- Recommend immediate actions to gather missing details
+</analysis_process>
+
+<judgment_criteria>
+Evaluate based on:
+
+INFORMATION COMPLETENESS:
+- Required fields present and accurate
+- Sufficient technical details provided
+- Clear problem description
+- Appropriate level of detail for the issue type
+
+CONSISTENCY CHECK:
+- Information matches similar ticket patterns
+- No contradictory details
+- Location/department information accurate
+- Priority matches described impact
+
+RISK ASSESSMENT:
+- Missing information could cause delays
+- Potential for misassignment
+- Escalation risk from incomplete details
+- Impact on SLA compliance
+
+CLARITY EVALUATION:
+- Description is clear and unambiguous
+- Technical terms used correctly
+- Steps are logical and complete
+- No jargon without explanation
+</judgment_criteria>
+
+<output_format>
+Generate your response as a valid JSON object with the following structure:
+
+{{
+  "ticket_quality_assessment": {{
+    "overall_rating": "[Poor|Fair|Good|Excellent]",
+    "completeness_score": "[1-10 scale]",
+    "clarity_score": "[1-10 scale]",
+    "risk_level": "[Low|Medium|High|Critical]"
+  }},
+  "missing_information": [
+    {{
+      "category": "[Technical Details|Business Impact|Contact Info|Timeline|etc]",
+      "missing_item": "[Specific missing information]",
+      "importance": "[Critical|Important|Helpful]",
+      "reason_needed": "[Why this information is important]"
+    }}
+  ],
+  "inconsistencies_found": [
+    {{
+      "type": "[Contradiction|Vagueness|Inaccuracy]",
+      "description": "[What is inconsistent]",
+      "potential_impact": "[How it affects resolution]"
+    }}
+  ],
+  "recommendations": {{
+    "immediate_actions": ["List", "of", "immediate", "steps"],
+    "ticket_improvements": ["Suggestions", "for", "better", "ticket", "creation"],
+    "follow_up_questions": ["Questions", "to", "ask", "the", "reporter"]
+  }},
+  "judgment_summary": {{
+    "key_findings": "[Brief summary of main issues]",
+    "estimated_impact": "[How missing info affects resolution time/cost]",
+    "confidence_level": "[High|Medium|Low]"
+  }}
+}}
+</output_format>
+
+<important_notes>
+- Focus on actionable insights that improve ticket resolution
+- Consider the balance between asking for too much vs too little information
+- Account for different issue types requiring different detail levels
+- Prioritize information that would prevent misassignment or delays
+- Be constructive in recommendations for process improvement
+</important_notes>
+
+Analyze the ticket and provide your expert judgment:
+"""

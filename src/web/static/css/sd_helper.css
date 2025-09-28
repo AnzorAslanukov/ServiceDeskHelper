@@ -85,11 +85,11 @@ input:checked + .slider:before {
     text-align: center;
 }
 
-.option-left {
+.option-1 {
     margin-right: 10px;
 }
 
-.option-right {
+.option-2 {
     margin-left: 10px;
 }
 
