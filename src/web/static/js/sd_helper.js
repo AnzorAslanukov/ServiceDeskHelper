@@ -114,7 +114,7 @@ document.addEventListener('DOMContentLoaded', function() {
                     resultsDiv.innerHTML = '<div class="error">Error: ' + error.message + '</div>';
                     resultsDiv.style.display = 'block';
                 });
-            } else {
+            } else if (currentMode === 'find-similar') {
                 // Show loading overlay for find-similar
                 loadingOverlay.style.display = 'flex';
                 let seconds = 0;
@@ -197,6 +197,103 @@ document.addEventListener('DOMContentLoaded', function() {
                         });
                     } else {
                         resultsDiv.innerHTML = '<div class="error">No similar tickets found.</div>';
+                    }
+                    resultsDiv.style.display = 'block';
+                })
+                .catch(error => {
+                    clearInterval(timerInterval);
+                    loadingOverlay.style.display = 'none';
+                    resultsDiv.innerHTML = '<div class="error">Error: ' + error.message + '</div>';
+                    resultsDiv.style.display = 'block';
+                });
+            } else if (currentMode === 'judge-ticket') {
+                // Show loading overlay for judge-ticket
+                loadingOverlay.style.display = 'flex';
+                let seconds = 0;
+                const timerInterval = setInterval(() => {
+                    seconds++;
+                    timerDiv.textContent = seconds + ' seconds';
+                }, 1000);
+
+                // Make API call
+                fetch('/search', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        ticket_id: query,
+                        mode: currentMode
+                    })
+                })
+                .then(response => response.json())
+                .then(data => {
+                    clearInterval(timerInterval);
+                    loadingOverlay.style.display = 'none';
+                    if (data.error) {
+                        resultsDiv.innerHTML = '<div class="error">Error: ' + data.error + '</div>';
+                    } else {
+                        // Create formatted HTML for judge-ticket
+                        let html = '';
+
+                        // Ticket Quality Assessment
+                        if (data.ticket_quality_assessment) {
+                            html += '<div class="result-section purple">';
+                            html += '<h3>Ticket Quality Assessment</h3>';
+                            html += '<div class="result-item"><label>Overall Rating:</label> <span>' + (data.ticket_quality_assessment.overall_rating || 'N/A') + '</span></div>';
+                            html += '<div class="result-item"><label>Completeness Score:</label> <span>' + (data.ticket_quality_assessment.completeness_score || 'N/A') + '</span></div>';
+                            html += '<div class="result-item"><label>Clarity Score:</label> <span>' + (data.ticket_quality_assessment.clarity_score || 'N/A') + '</span></div>';
+                            html += '<div class="result-item"><label>Risk Level:</label> <span>' + (data.ticket_quality_assessment.risk_level || 'N/A') + '</span></div>';
+                            html += '</div>';
+                        }
+
+                        // Missing Information
+                        if (data.missing_information && Array.isArray(data.missing_information)) {
+                            html += '<div class="result-section purple">';
+                            html += '<h3>Missing Information</h3>';
+                            data.missing_information.forEach(item => {
+                                html += '<div class="result-item"><label>' + (item.category || 'N/A') + ':</label> <span>' + (item.missing_item || 'N/A') + ' (Importance: ' + (item.importance || 'N/A') + ') - ' + (item.reason_needed || 'N/A') + '</span></div>';
+                            });
+                            html += '</div>';
+                        }
+
+                        // Inconsistencies Found
+                        if (data.inconsistencies_found && Array.isArray(data.inconsistencies_found)) {
+                            html += '<div class="result-section purple">';
+                            html += '<h3>Inconsistencies Found</h3>';
+                            data.inconsistencies_found.forEach(item => {
+                                html += '<div class="result-item"><label>' + (item.type || 'N/A') + ':</label> <span>' + (item.description || 'N/A') + ' - Impact: ' + (item.potential_impact || 'N/A') + '</span></div>';
+                            });
+                            html += '</div>';
+                        }
+
+                        // Recommendations
+                        if (data.recommendations) {
+                            html += '<div class="result-section purple">';
+                            html += '<h3>Recommendations</h3>';
+                            if (data.recommendations.immediate_actions && Array.isArray(data.recommendations.immediate_actions)) {
+                                html += '<div class="result-item"><label>Immediate Actions:</label> <span>' + data.recommendations.immediate_actions.join(', ') + '</span></div>';
+                            }
+                            if (data.recommendations.ticket_improvements && Array.isArray(data.recommendations.ticket_improvements)) {
+                                html += '<div class="result-item"><label>Ticket Improvements:</label> <span>' + data.recommendations.ticket_improvements.join(', ') + '</span></div>';
+                            }
+                            if (data.recommendations.follow_up_questions && Array.isArray(data.recommendations.follow_up_questions)) {
+                                html += '<div class="result-item"><label>Follow-up Questions:</label> <span>' + data.recommendations.follow_up_questions.join(', ') + '</span></div>';
+                            }
+                            html += '</div>';
+                        }
+
+                        // Judgment Summary
+                        if (data.judgment_summary) {
+                            html += '<div class="result-section purple">';
+                            html += '<h3>Judgment Summary</h3>';
+                            html += '<div class="result-item"><label>Key Findings:</label> <span>' + (data.judgment_summary.key_findings || 'N/A') + '</span></div>';
+                            html += '<div class="result-item"><label>Estimated Impact:</label> <span>' + (data.judgment_summary.estimated_impact || 'N/A') + '</span></div>';
+                            html += '<div class="result-item"><label>Confidence Level:</label> <span>' + (data.judgment_summary.confidence_level || 'N/A') + '</span></div>';
+                            html += '</div>';
+                        }
+
+                        resultsDiv.innerHTML = html;
                     }
                     resultsDiv.style.display = 'block';
                 })

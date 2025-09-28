@@ -47,6 +47,10 @@ def search():
                     norm_ticket['ticket_id'] = norm_ticket.pop('id')
                 normalized_tickets.append(norm_ticket)
             return jsonify({'similar_tickets': normalized_tickets})
+        elif mode == 'judge-ticket':
+            from src.processors.athena_operations import athena_ticket_judgment
+            result = athena_ticket_judgment(ticket_id, log_debug=False)
+            return jsonify(result)
         else:
             return jsonify({'error': 'Invalid mode'}), 400
     except Exception as e:

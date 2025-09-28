@@ -149,6 +149,10 @@ button:disabled {
     background-color: #ff6b35;
 }
 
+.result-section.purple {
+    background-color: #800080;
+}
+
 .result-section:hover {
     filter: brightness(0.9);
     cursor: pointer;
